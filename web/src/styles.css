@@ -1,0 +1,734 @@
+/*
+  Mesa de guerra entre Radiant (tu equipo) y Dire (enemigos).
+  Contraste sobre --basalt: bone 12.9:1, bone-dim 6.0:1, radiant 5.4:1, gold 6.7:1.
+  --dire (3.2:1) solo se usa en texto grande (>= 24px) y bordes; el texto pequeño usa --dire-texto (6.3:1).
+*/
+:root {
+  --basalt: #24201d;
+  --basalt-2: #2e2925;
+  --basalt-3: #39332e;
+  --bone: #e9e2d4;
+  --bone-dim: #a69d8f;
+  --radiant: #5fa37a;
+  --dire: #c2452d;
+  --dire-texto: #e58a74;
+  --gold: #c9a15a;
+
+  --fuente-titulo: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --fuente-texto: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --texto-s: 0.875rem;
+  --texto-m: 1rem;
+  --texto-l: 1.25rem;
+  --titulo-s: 1.25rem;
+  --titulo-m: 1.75rem;
+  --titulo-l: 2.5rem;
+
+  --alto-slot: 92px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--basalt);
+  color: var(--bone);
+  font-family: var(--fuente-texto);
+  font-size: var(--texto-m);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+ol,
+ul,
+fieldset {
+  margin: 0;
+  padding: 0;
+}
+
+ol,
+ul {
+  list-style: none;
+}
+
+img {
+  display: block;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--bone);
+  outline-offset: 2px;
+}
+
+.app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+/* ---------- barra superior ---------- */
+
+.barra-superior {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: end;
+  gap: 24px 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--basalt-3);
+  margin-bottom: 24px;
+}
+
+.titulo {
+  font-family: var(--fuente-titulo);
+  font-weight: 800;
+  font-size: var(--titulo-l);
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+
+.roles {
+  border: 0;
+  min-width: 0;
+}
+
+.roles legend {
+  padding: 0;
+  margin-bottom: 6px;
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+}
+
+.roles__grupo {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  max-width: 560px;
+  border: 1px solid var(--basalt-3);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.rol {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 6px 4px;
+  min-height: 52px;
+  cursor: pointer;
+  background: var(--basalt-2);
+  color: var(--bone-dim);
+  text-align: center;
+  line-height: 1.2;
+}
+
+.rol + .rol {
+  border-left: 1px solid var(--basalt-3);
+}
+
+.rol input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.rol:has(input:focus-visible) {
+  outline: 2px solid var(--bone);
+  outline-offset: -3px;
+}
+
+.rol__num {
+  font-family: var(--fuente-titulo);
+  font-weight: 700;
+  font-size: var(--titulo-s);
+  line-height: 1;
+}
+
+.rol__nombre {
+  font-size: var(--texto-s);
+  font-weight: 500;
+}
+
+.rol:hover {
+  color: var(--bone);
+}
+
+.rol--activo {
+  background: var(--bone);
+  color: var(--basalt);
+}
+
+.rol--activo:hover {
+  color: var(--basalt);
+}
+
+.barra-superior__lado {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 240px;
+}
+
+.campo label {
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+}
+
+.campo input {
+  height: 40px;
+  padding: 0 12px;
+  background: var(--basalt-2);
+  border: 1px solid var(--basalt-3);
+  border-radius: 6px;
+}
+
+.campo input::placeholder,
+.combo__input::placeholder {
+  color: var(--bone-dim);
+  opacity: 1;
+}
+
+.campo input[aria-invalid="true"] {
+  border-color: var(--dire-texto);
+}
+
+.campo__error {
+  color: var(--dire-texto);
+  font-size: var(--texto-s);
+}
+
+.boton {
+  height: 40px;
+  padding: 0 16px;
+  background: transparent;
+  border: 1px solid var(--bone-dim);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.boton:hover:not(:disabled) {
+  border-color: var(--bone);
+  background: var(--basalt-2);
+}
+
+.boton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---------- avisos ---------- */
+
+.aviso {
+  color: var(--bone-dim);
+  padding: 12px 16px;
+  border-left: 3px solid var(--bone-dim);
+  background: var(--basalt-2);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.aviso--error {
+  border-left-color: var(--dire);
+  color: var(--bone);
+}
+
+.app > .aviso {
+  margin-bottom: 24px;
+}
+
+/* ---------- tablero ---------- */
+
+.tablero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.equipo__titulo {
+  font-family: var(--fuente-titulo);
+  font-weight: 800;
+  font-size: var(--titulo-l);
+  line-height: 1;
+}
+
+.equipo--enemigos .equipo__titulo {
+  color: var(--dire);
+}
+
+.equipo--aliados .equipo__titulo {
+  color: var(--radiant);
+}
+
+.equipo__sub {
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+  margin: 2px 0 12px;
+}
+
+.slots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------- slot ---------- */
+
+.slot {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  min-height: var(--alto-slot);
+  background: var(--basalt-2);
+  border-left: 4px solid var(--dire);
+}
+
+.slot--aliados {
+  border-left-color: var(--radiant);
+}
+
+.slot--propio {
+  border-left-color: var(--gold);
+}
+
+.slot:focus-within {
+  z-index: 5;
+}
+
+.slot__pos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--fuente-titulo);
+  font-weight: 700;
+  font-size: var(--titulo-m);
+  color: var(--bone-dim);
+}
+
+.slot__cuerpo {
+  position: relative;
+  min-width: 0;
+  display: flex;
+}
+
+.slot__vacio {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 12px 8px 0;
+}
+
+.slot__rol {
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+}
+
+.slot__propio {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 12px 8px 0;
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+}
+
+.slot__propio strong {
+  color: var(--gold);
+  font-family: var(--fuente-titulo);
+  font-weight: 800;
+  font-size: var(--titulo-m);
+  line-height: 1.1;
+}
+
+.slot__retrato {
+  position: relative;
+  flex: 1;
+  min-height: var(--alto-slot);
+  overflow: hidden;
+  animation: asentar-slot 220ms ease-out both;
+}
+
+.slot__imagen {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: var(--basalt-3);
+  cursor: pointer;
+}
+
+.slot__imagen img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+}
+
+.slot__nombre {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 10px;
+  background: rgb(36 32 29 / 0.9);
+  font-family: var(--fuente-titulo);
+  font-weight: 700;
+  font-size: var(--titulo-s);
+  line-height: 1.25;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slot__acciones {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+}
+
+.slot__cambiar,
+.slot__quitar {
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: rgb(36 32 29 / 0.9);
+  cursor: pointer;
+  font-size: var(--texto-s);
+}
+
+.slot__cambiar {
+  padding: 0 10px;
+}
+
+.slot__quitar {
+  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slot__cambiar:hover,
+.slot__quitar:hover {
+  background: var(--bone);
+  color: var(--basalt);
+}
+
+/* ---------- combobox ---------- */
+
+.combo {
+  position: relative;
+}
+
+.combo__input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--basalt);
+  border: 1px solid var(--basalt-3);
+  border-radius: 6px;
+}
+
+.combo__input:hover {
+  border-color: var(--bone-dim);
+}
+
+.combo__panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  background: var(--basalt-3);
+  border: 1px solid var(--bone-dim);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  overflow: hidden;
+  min-width: 220px;
+}
+
+.combo__panel[hidden],
+.combo__lista[hidden] {
+  display: none;
+}
+
+.combo__aviso {
+  padding: 8px 12px;
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+}
+
+.combo__aviso:empty {
+  display: none;
+}
+
+.combo__opcion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.combo__opcion--activa {
+  background: var(--bone);
+  color: var(--basalt);
+}
+
+.combo__opcion img,
+.combo__sin-icono {
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  object-fit: cover;
+  background: var(--basalt-2);
+  flex: none;
+}
+
+.combo__nombre {
+  font-weight: 500;
+}
+
+.combo__nombre mark {
+  background: none;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* ---------- sugerencias ---------- */
+
+.centro {
+  /* Reserva la altura de las 3 filas: al aparecer las sugerencias el tablero no se desplaza. */
+  min-height: 25rem;
+}
+
+.centro__titulo {
+  font-family: var(--fuente-titulo);
+  font-weight: 700;
+  font-size: var(--titulo-m);
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.vacio {
+  color: var(--bone-dim);
+  max-width: 34ch;
+  padding: 24px 0;
+  font-size: var(--texto-l);
+  line-height: 1.4;
+}
+
+.sugerencias {
+  display: flex;
+  flex-direction: column;
+}
+
+.sugerencias[data-cargando="true"] {
+  opacity: 0.55;
+  transition: opacity 150ms;
+}
+
+/* Una fila por sugerencia: rango | retrato (16:9, como los de Steam) | nombre + puntaje, barra y motivo. */
+.sugerencia {
+  display: grid;
+  grid-template-columns: 28px 128px minmax(0, 1fr);
+  align-items: center;
+  gap: 0 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--basalt-3);
+  animation: asentar 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i) * 90ms);
+}
+
+/* La #1 es la recomendación: retrato y nombre algo mayores, sin romper que quepan las tres. */
+.sugerencia:first-child {
+  grid-template-columns: 28px 160px minmax(0, 1fr);
+  padding: 12px 0;
+}
+
+.sugerencia__rango {
+  font-family: var(--fuente-titulo);
+  font-weight: 800;
+  font-size: var(--titulo-m);
+  line-height: 1;
+  color: var(--gold);
+}
+
+.sugerencia:first-child .sugerencia__rango {
+  font-size: var(--titulo-l);
+}
+
+.sugerencia__img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  object-fit: cover;
+  background: var(--basalt-2);
+}
+
+.sugerencia__texto {
+  min-width: 0;
+}
+
+.sugerencia__cabecera {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sugerencia__nombre {
+  font-family: var(--fuente-titulo);
+  font-weight: 800;
+  font-size: var(--titulo-s);
+  line-height: 1.1;
+}
+
+.sugerencia:first-child .sugerencia__nombre {
+  font-size: var(--titulo-m);
+}
+
+.barra {
+  height: 3px;
+  margin: 4px 0;
+  background: var(--basalt-3);
+}
+
+.barra__relleno {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+}
+
+.sugerencia__puntaje {
+  flex: none;
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+}
+
+.sugerencia__motivo {
+  font-size: var(--texto-s);
+  line-height: 1.35;
+}
+
+.advertencias {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--basalt-3);
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+}
+
+.advertencias li + li {
+  margin-top: 4px;
+}
+
+/* ---------- movimiento ---------- */
+
+@keyframes asentar {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes asentar-slot {
+  from {
+    opacity: 0.4;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sugerencia,
+  .slot__retrato {
+    animation: none;
+  }
+  .sugerencias[data-cargando="true"] {
+    transition: none;
+  }
+}
+
+/* ---------- movil ---------- */
+
+@media (max-width: 1100px) {
+  .barra-superior {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .roles__grupo {
+    max-width: none;
+  }
+}
+
+@media (max-width: 760px) {
+  :root {
+    --titulo-l: 2rem;
+  }
+  .app {
+    padding: 16px;
+  }
+  .tablero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .barra-superior__lado {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .campo {
+    max-width: none;
+  }
+  .rol__nombre {
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+  }
+  .centro {
+    min-height: 0;
+  }
+  .sugerencia,
+  .sugerencia:first-child {
+    grid-template-columns: 24px 96px minmax(0, 1fr);
+  }
+}
