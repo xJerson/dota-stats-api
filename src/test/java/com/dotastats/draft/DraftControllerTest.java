@@ -11,10 +11,12 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -62,9 +64,9 @@ class DraftControllerTest {
 
     @BeforeEach
     void motorSinSugerenciasPorDefecto() {
-        when(motorSugerencias.sugerir(anyInt(), anyList(), anyList()))
+        when(motorSugerencias.sugerir(anyInt(), anyMap(), anyList()))
                 .thenReturn(new ResultadoSugerencias(List.of(), List.of()));
-        when(motorSugerencias.sugerir(anyInt(), anyList(), anyList(), any()))
+        when(motorSugerencias.sugerir(anyInt(), anyMap(), anyList(), any()))
                 .thenReturn(new ResultadoSugerencias(List.of(), List.of()));
     }
 
@@ -132,7 +134,7 @@ class DraftControllerTest {
 
     @Test
     void suggestDevuelve503CuandoLosDatosDelMetaNoEstanCargados() throws Exception {
-        when(motorSugerencias.sugerir(anyInt(), anyList(), anyList()))
+        when(motorSugerencias.sugerir(anyInt(), anyMap(), anyList()))
                 .thenThrow(new com.dotastats.exception.DatosNoCargadosException());
 
         mockMvc.perform(post("/api/draft/suggest")
@@ -145,7 +147,7 @@ class DraftControllerTest {
 
     @Test
     void suggestSerializaElPuntajeDeCadaSugerencia() throws Exception {
-        when(motorSugerencias.sugerir(anyInt(), anyList(), anyList()))
+        when(motorSugerencias.sugerir(anyInt(), anyMap(), anyList()))
                 .thenReturn(new ResultadoSugerencias(
                         List.of(new Sugerencia(1, "Anti-Mage", "52.3% en el meta", 0.51)), List.of()));
 
@@ -166,7 +168,7 @@ class DraftControllerTest {
                 .andExpect(jsonPath("$.advertencias").isArray())
                 .andExpect(jsonPath("$.advertencias").isEmpty());
 
-        when(motorSugerencias.sugerir(anyInt(), anyList(), anyList()))
+        when(motorSugerencias.sugerir(anyInt(), anyMap(), anyList()))
                 .thenReturn(new ResultadoSugerencias(List.of(), List.of("No se pudo consultar a Slark")));
 
         mockMvc.perform(post("/api/draft/suggest")
@@ -185,8 +187,8 @@ class DraftControllerTest {
                         .content("{\"miRol\": 1}"))
                 .andExpect(status().isOk());
 
-        verify(motorSugerencias).sugerir(anyInt(), anyList(), anyList());
-        verify(motorSugerencias, never()).sugerir(anyInt(), anyList(), anyList(), any());
+        verify(motorSugerencias).sugerir(anyInt(), anyMap(), anyList());
+        verify(motorSugerencias, never()).sugerir(anyInt(), anyMap(), anyList(), any());
     }
 
     @Test
@@ -196,12 +198,12 @@ class DraftControllerTest {
                         .content("{\"miRol\": 1, \"steamId\": \"  \"}"))
                 .andExpect(status().isOk());
 
-        verify(motorSugerencias, never()).sugerir(anyInt(), anyList(), anyList(), any());
+        verify(motorSugerencias, never()).sugerir(anyInt(), anyMap(), anyList(), any());
     }
 
     @Test
     void conSteamId64LoConvierteAAccountIdYPersonaliza() throws Exception {
-        when(motorSugerencias.sugerir(anyInt(), anyList(), anyList(), any()))
+        when(motorSugerencias.sugerir(anyInt(), anyMap(), anyList(), any()))
                 .thenReturn(new ResultadoSugerencias(
                         List.of(new Sugerencia(1, "Anti-Mage", "52.3% en el meta; tu winrate: 66% en 40 partidas", 0.51)),
                         List.of()));
@@ -212,8 +214,8 @@ class DraftControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sugerencias[0].motivo").value(org.hamcrest.Matchers.containsString("tu winrate")));
 
-        verify(motorSugerencias).sugerir(eq(1), anyList(), anyList(), eq(105248644L));
-        verify(motorSugerencias, never()).sugerir(anyInt(), anyList(), anyList());
+        verify(motorSugerencias).sugerir(eq(1), anyMap(), anyList(), eq(105248644L));
+        verify(motorSugerencias, never()).sugerir(anyInt(), anyMap(), anyList());
     }
 
     @Test
@@ -223,7 +225,7 @@ class DraftControllerTest {
                         .content("{\"miRol\": 1, \"steamId\": \"105248644\"}"))
                 .andExpect(status().isOk());
 
-        verify(motorSugerencias).sugerir(eq(1), anyList(), anyList(), eq(105248644L));
+        verify(motorSugerencias).sugerir(eq(1), anyMap(), anyList(), eq(105248644L));
     }
 
     @Test
@@ -234,13 +236,13 @@ class DraftControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("STEAM_ID_INVALIDO"));
 
-        verify(motorSugerencias, never()).sugerir(anyInt(), anyList(), anyList(), any());
-        verify(motorSugerencias, never()).sugerir(anyInt(), anyList(), anyList());
+        verify(motorSugerencias, never()).sugerir(anyInt(), anyMap(), anyList(), any());
+        verify(motorSugerencias, never()).sugerir(anyInt(), anyMap(), anyList());
     }
 
     @Test
     void unPerfilPrivadoDevuelve422ConCodigoYMensajeAmigable() throws Exception {
-        when(motorSugerencias.sugerir(anyInt(), anyList(), anyList(), any()))
+        when(motorSugerencias.sugerir(anyInt(), anyMap(), anyList(), any()))
                 .thenThrow(new com.dotastats.exception.PerfilPrivadoException());
 
         mockMvc.perform(post("/api/draft/suggest")
@@ -305,5 +307,33 @@ class DraftControllerTest {
                         .content("{\"miRol\": 1, \"enemigos\": {\"1\": \"sf\", \"2\": \"sf\"}}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("HEROE_DUPLICADO"));
+    }
+
+    @Test
+    void elControladorPasaAlMotorLosEnemigosPorSlotYLosAliadosComoLista() throws Exception {
+        when(resolver.resolver("sf")).thenReturn(ResultadoAlias.resuelto(11, "Shadow Fiend"));
+        when(resolver.resolver("cm")).thenReturn(ResultadoAlias.resuelto(5, "Crystal Maiden"));
+        when(resolver.resolver("am")).thenReturn(ResultadoAlias.resuelto(1, "Anti-Mage"));
+
+        mockMvc.perform(post("/api/draft/suggest")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"miRol": 2, "enemigos": {"4": "sf", "2": "cm"}, "aliados": {"1": "am"}}
+                                """))
+                .andExpect(status().isOk());
+
+        verify(motorSugerencias).sugerir(eq(2), eq(Map.of(2, 5, 4, 11)), eq(List.of(1)));
+    }
+
+    @Test
+    void conSteamIdTambienPasaLosEnemigosPorSlot() throws Exception {
+        when(resolver.resolver("sf")).thenReturn(ResultadoAlias.resuelto(11, "Shadow Fiend"));
+
+        mockMvc.perform(post("/api/draft/suggest")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"miRol\": 1, \"enemigos\": {\"3\": \"sf\"}, \"steamId\": \"105248644\"}"))
+                .andExpect(status().isOk());
+
+        verify(motorSugerencias).sugerir(eq(1), eq(Map.of(3, 11)), eq(List.of()), eq(105248644L));
     }
 }

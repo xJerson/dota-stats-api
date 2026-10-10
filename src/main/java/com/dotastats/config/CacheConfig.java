@@ -30,10 +30,7 @@ public class CacheConfig {
                 .maximumSize(1000)
                 .build());
 
-        // El catálogo de héroes casi no cambia, se cachea sin expiración.
-        cacheManager.registerCustomCache("catalogoHeroes", Caffeine.newBuilder()
-                .maximumSize(1)
-                .build());
+        // (El catálogo de héroes se conserva en OpenDotaClientImpl, que decide cuándo cachear.)
 
         return cacheManager;
     }

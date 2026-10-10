@@ -49,13 +49,13 @@ public class DraftController {
         Clasificacion enemigos = clasificar(request.enemigos(), idsEnemigos, yaElegidos);
         Clasificacion aliados = clasificar(request.aliados(), idsAliados, yaElegidos);
 
-        List<Integer> enemigosElegidos = new ArrayList<>(idsEnemigos.values());
         List<Integer> aliadosElegidos = new ArrayList<>(idsAliados.values());
+        // Los enemigos van por slot: el motor pondera distinto al rival de mi línea que al resto.
         ResultadoSugerencias resultado = request.personaliza()
                 // un steamId no numérico lanza IllegalArgumentException -> 400 STEAM_ID_INVALIDO
-                ? motorSugerencias.sugerir(request.miRol(), enemigosElegidos, aliadosElegidos,
+                ? motorSugerencias.sugerir(request.miRol(), idsEnemigos, aliadosElegidos,
                         SteamIdConverter.toAccountId(request.steamId().trim()))
-                : motorSugerencias.sugerir(request.miRol(), enemigosElegidos, aliadosElegidos);
+                : motorSugerencias.sugerir(request.miRol(), idsEnemigos, aliadosElegidos);
 
         return new DraftResponse(
                 request.miRol(),

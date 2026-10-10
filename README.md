@@ -167,7 +167,8 @@ En desarrollo, Vite reenvía `/api` a `http://localhost:8080`, así que no hace 
 
 ```
 meta      = límite inferior de Wilson del winrate del héroe en los brackets configurados
-counter   = promedio, por cada enemigo, de (victorias + 100 × meta) / (partidas + 100)
+counter   = promedio PONDERADO, por cada enemigo, de (victorias + 100 × meta) / (partidas + 100)
+            peso del enemigo = 1.0 si juega contra tu línea, 0.5 si no (según el slot en que lo pusiste)
 personal  = (tus victorias + 20 × meta) / (tus partidas + 20)          (solo con steamId)
 
 puntaje   = 0.4 × meta + 0.6 × counter                                  (sin steamId)
@@ -176,10 +177,30 @@ puntaje   = 0.75 × (0.4 × meta + 0.6 × counter) + 0.25 × personal       (con
 
 Cuando falta información (un duelo sin partidas, un héroe que nunca jugaste), el término vale exactamente el meta del héroe: no da ventaja ni castiga.
 
+### Qué enemigos pesan más
+
+El slot (1-5) en que escribes a cada enemigo importa: el motor lo recibe por posición, no como una lista suelta. Se usan las líneas estándar (la línea segura, posiciones 1 y 5, se enfrenta a la ofensiva rival, posiciones 3 y 4; la central contra la central). Un enemigo que juega contra tu línea pesa `peso-oponente-directo` (1.0 por defecto) en el promedio del counter; los demás pesan `peso-otros-enemigos` (0.5). El promedio se normaliza por la suma de pesos.
+
+| Tu posición | Enemigos que juegan contra tu línea (slots) |
+|---|---|
+| 1 (carry) | 3 y 4 |
+| 2 (mid) | 2 |
+| 3 (offlane) | 1 y 5 |
+| 4 (soft support) | 1 y 5 |
+| 5 (hard support) | 3 y 4 |
+
+Los motivos son honestos con la muestra:
+
+- `fuerte contra X (NN%)` solo aparece si el duelo tiene al menos `min-partidas-duelo` partidas (10 por defecto).
+- Si un enemigo que juega contra tu línea tiene menos partidas (o ninguna), el motivo añade `sin datos suficientes contra X` (hasta 2 nombres). Ese enemigo cuenta con el meta del héroe, sin ventaja ni castigo.
+- Si ningún enemigo tiene datos suficientes, el motivo dice `ranking según el meta, sin datos de duelo suficientes`: el orden sale solo del meta.
+
+Los datos de duelo son globales (el winrate de un héroe contra otro en todas las líneas), no por línea, y muchas veces son una muestra pequeña. Por eso el peso por slot afina el promedio pero no convierte el duelo en un dato de línea.
+
 ### Qué héroes son candidatos a cada posición
 
 - **Posiciones 1, 2 y 3** usan datos reales de línea de OpenDota (`/scenarios/laneRoles`: 1 = línea segura, 2 = central, 3 = ofensiva). Un héroe es candidato a la posición N si su participación en la línea N (`partidas en la línea N / partidas en las líneas 1-3`) es al menos `umbral-linea` (30 % por defecto) **y** tiene al menos `min-partidas-linea` partidas (30) en ella. La posición 1 exige además la etiqueta `Carry`, porque los soportes también juegan la línea segura. Así un héroe etiquetado `Carry` que casi siempre juega la línea segura ya no aparece como mid.
-- **Posiciones 4 y 5** siguen usando las etiquetas de rol de OpenDota (`Support`, y `Initiator` para la 4): los datos de línea no distinguen a un soporte de un núcleo que juega la misma línea.
+- **Posiciones 4 y 5** usan una **lista curada a mano** (`dotastats.sugerencias.heroes-posicion.4` y `.5`, nombres separados por coma, sin distinguir mayúsculas ni acentos): los candidatos son solo esos héroes, sin exigir etiqueta. Las etiquetas de OpenDota son demasiado laxas (`Support`/`Initiator` dejaban pasar a Enigma o Night Stalker como soft supports) y los datos de línea no distinguen a un soporte de un núcleo que juega la misma línea. Las listas son editables y **conviene revisarlas después de cada parche**; un nombre que no exista en el catálogo se avisa con un `WARN` en el log al cargar los datos de meta (no falla). Si una posición no tiene lista (o está vacía) se usa el respaldo por etiquetas de `roles.N` (`Support`, y `Initiator` para la 4).
 - **Sin datos de línea** (OpenDota falló al cargarlas) las posiciones 1-3 recurren a las etiquetas y la respuesta incluye una entrada en `advertencias`.
 - `dotastats.sugerencias.excluir-posicion.N` permite quitar a mano héroes concretos de una posición.
 
@@ -196,10 +217,12 @@ Todo está en `src/main/resources/application.properties` y documentado ahí. Lo
 | `dotastats.meta.cache-file` | `./data/meta-cache.json` | Caché en disco. Vacío = sin caché de disco. |
 | `dotastats.meta.ttl-parche-minutos` | `30` | Cada cuánto se verifica si hay parche nuevo. |
 | `dotastats.sugerencias.peso-meta` / `peso-contra` | `0.4` / `0.6` | Pesos del puntaje. |
+| `dotastats.sugerencias.peso-oponente-directo` / `peso-otros-enemigos` | `1.0` / `0.5` | Peso en el counter de los enemigos que juegan contra tu línea y de los demás. Ambos >= 0 y no los dos en cero. |
 | `dotastats.sugerencias.peso-personal` | `0.25` | Peso del historial propio cuando se envía `steamId`. |
 | `dotastats.sugerencias.umbral-linea` | `0.30` | Posiciones 1-3: participación mínima del héroe en la línea de la posición (sobre sus partidas en las líneas 1-3). |
 | `dotastats.sugerencias.min-partidas-linea` | `30` | Posiciones 1-3: partidas mínimas del héroe en esa línea. |
-| `dotastats.sugerencias.roles.N` | ver archivo | Etiquetas de rol aceptadas para la posición N (posiciones 4-5, y 1-3 sin datos de línea). |
+| `dotastats.sugerencias.heroes-posicion.N` | listas de 4 y 5 | Lista curada de héroes candidatos a la posición N (anula las etiquetas de esa posición). Revisar tras cada parche. |
+| `dotastats.sugerencias.roles.N` | ver archivo | Etiquetas de rol aceptadas para la posición N cuando no hay lista curada (y en 1-3 sin datos de línea). |
 | `dotastats.sugerencias.excluir-posicion.N` | vacío | Nombres de héroe (separados por coma) que nunca se sugieren en la posición N. |
 
 ## Errores

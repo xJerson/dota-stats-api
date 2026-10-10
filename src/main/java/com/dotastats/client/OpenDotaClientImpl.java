@@ -26,6 +26,7 @@ public class OpenDotaClientImpl implements OpenDotaClient {
     private static final long ESPERA_BASE_MS = 3000;
 
     private final RestClient restClient;
+    private volatile List<Map<String, Object>> catalogoHeroes;
 
     public OpenDotaClientImpl(RestClient openDotaRestClient) {
         this.restClient = openDotaRestClient;
@@ -52,14 +53,39 @@ public class OpenDotaClientImpl implements OpenDotaClient {
                 .body(Object.class));
     }
 
+    /**
+     * Catálogo de héroes (/heroes) con el nombre ACTUAL de cada uno: /heroes conserva nombres viejos
+     * ("Outworld Destroyer") y /heroStats, que es de donde sale el meta, los nuevos ("Outworld Devourer"). Para que un
+     * héroe se llame igual en el catálogo y en las sugerencias, {@code localized_name} se toma de /heroStats.
+     * <p>
+     * Se cachea en memoria sin expiración (cambia casi nunca) salvo que /heroStats falle: entonces se devuelve el
+     * catálogo tal cual y no se guarda, para reintentar en la siguiente llamada.
+     */
     @Override
-    @Cacheable("catalogoHeroes")
     public List<Map<String, Object>> obtenerCatalogoHeroes() {
-        return ejecutarSinJugador(() -> restClient.get()
-                .uri("/heroes")
-                .retrieve()
-                .body(new ParameterizedTypeReference<List<Map<String, Object>>>() {
-                }));
+        List<Map<String, Object>> guardado = catalogoHeroes;
+        if (guardado != null) {
+            return guardado;
+        }
+        synchronized (this) {
+            if (catalogoHeroes != null) {
+                return catalogoHeroes;
+            }
+            List<Map<String, Object>> crudo = ejecutarSinJugador(() -> restClient.get()
+                    .uri("/heroes")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<Map<String, Object>>>() {
+                    }));
+            try {
+                List<Map<String, Object>> fusionado = CatalogoHeroes.conNombresActuales(crudo, obtenerHeroStats());
+                catalogoHeroes = fusionado;
+                return fusionado;
+            } catch (RuntimeException e) {
+                log.warn("No se pudieron leer los nombres actuales de /heroStats; el catálogo usa los de /heroes: {}",
+                        e.getMessage());
+                return crudo;
+            }
+        }
     }
 
     // Sin @Cacheable: DatosMetaService conserva el snapshot en memoria y decide cuándo recargar.

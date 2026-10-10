@@ -25,9 +25,19 @@ import java.util.Map;
  *                          sus partidas totales en las líneas 1-3 (segura, central, ofensiva). La posición 1 exige
  *                          además alguna etiqueta de {@code roles[1]}, porque los soportes también juegan la segura
  * @param minPartidasLinea  posiciones 1-3: partidas mínimas del héroe en esa línea para ser candidato
- * @param roles             posición (1-5) -> roles de OpenDota aceptados; ver {@link #ROLES_POR_DEFECTO}. Se usa
- *                          siempre en las posiciones 4-5 y, en las 1-3, solo si no hay datos de línea
+ * @param pesoOponenteDirecto peso (>= 0) en el counter de un enemigo que juega contra mi línea: posiciones 1 y 5 ->
+ *                          enemigos 3 y 4; posición 2 -> enemigo 2; posiciones 3 y 4 -> enemigos 1 y 5
+ * @param pesoOtrosEnemigos peso (>= 0) en el counter de los demás enemigos; el counter es el promedio ponderado.
+ *                          No pueden ser cero a la vez
+ * @param roles             posición (1-5) -> roles de OpenDota aceptados; ver {@link #ROLES_POR_DEFECTO}. Es la regla
+ *                          de las posiciones sin lista en {@code heroesPosicion} (normalmente 4-5 si no hay lista) y, en las
+ *                          1-3, solo si no hay datos de línea
  * @param excluirPosicion   posición (1-5) -> nombres de héroe que nunca se sugieren en ella (anulación manual)
+ * @param heroesPosicion    posición (1-5) -> lista CURADA A MANO de nombres de héroe (sin distinguir mayúsculas ni
+ *                          acentos). Si una posición tiene lista no vacía, sus candidatos son SOLO esos héroes (sin exigir
+ *                          etiqueta ni datos de línea) y {@code roles} no se usa para ella; sin lista (o vacía) se aplica la
+ *                          regla de etiquetas/línea de siempre. Pensada para 4 y 5, donde las etiquetas de OpenDota son
+ *                          demasiado laxas; hay que revisarla tras cada parche. {@code excluirPosicion} sigue aplicando
  */
 @ConfigurationProperties("dotastats.sugerencias")
 public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
@@ -40,8 +50,11 @@ public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
                                     @DefaultValue("5") int minPartidasPersonal,
                                     @DefaultValue("0.30") double umbralLinea,
                                     @DefaultValue("30") long minPartidasLinea,
+                                    @DefaultValue("1.0") double pesoOponenteDirecto,
+                                    @DefaultValue("0.5") double pesoOtrosEnemigos,
                                     Map<Integer, List<String>> roles,
-                                    Map<Integer, List<String>> excluirPosicion) {
+                                    Map<Integer, List<String>> excluirPosicion,
+                                    Map<Integer, List<String>> heroesPosicion) {
 
     /**
      * Heurística, no una verdad del juego: OpenDota no sabe en qué posición se juega un héroe, solo le
@@ -63,6 +76,18 @@ public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
             5, List.of("Support"));
 
     public SugerenciasProperties {
+        if (!(pesoOponenteDirecto >= 0)) {
+            throw new IllegalArgumentException(
+                    "dotastats.sugerencias.peso-oponente-directo debe ser un número >= 0 (valor: " + pesoOponenteDirecto + ")");
+        }
+        if (!(pesoOtrosEnemigos >= 0)) {
+            throw new IllegalArgumentException(
+                    "dotastats.sugerencias.peso-otros-enemigos debe ser un número >= 0 (valor: " + pesoOtrosEnemigos + ")");
+        }
+        if (pesoOponenteDirecto == 0 && pesoOtrosEnemigos == 0) {
+            throw new IllegalArgumentException(
+                    "dotastats.sugerencias: al menos uno de peso-oponente-directo y peso-otros-enemigos debe ser > 0");
+        }
         // Lo configurado por posición pisa el valor por defecto; las posiciones sin configurar lo conservan.
         Map<Integer, List<String>> completo = new HashMap<>(ROLES_POR_DEFECTO);
         if (roles != null) {
@@ -70,9 +95,21 @@ public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
         }
         roles = Map.copyOf(completo);
         excluirPosicion = excluirPosicion == null ? Map.of() : Map.copyOf(excluirPosicion);
+        // Se descartan nombres en blanco y las posiciones que quedan sin ninguno (= sin lista -> regla de etiquetas)
+        Map<Integer, List<String>> listas = new HashMap<>();
+        if (heroesPosicion != null) {
+            heroesPosicion.forEach((posicion, nombres) -> {
+                List<String> limpios = nombres == null ? List.of()
+                        : nombres.stream().filter(n -> n != null && !n.isBlank()).map(String::trim).toList();
+                if (!limpios.isEmpty()) {
+                    listas.put(posicion, limpios);
+                }
+            });
+        }
+        heroesPosicion = Map.copyOf(listas);
     }
 
     public static SugerenciasProperties porDefecto() {
-        return new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.30, 30, null, null);
+        return new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.30, 30, 1.0, 0.5, null, null, null);
     }
 }

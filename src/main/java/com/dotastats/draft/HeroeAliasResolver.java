@@ -55,6 +55,8 @@ public class HeroeAliasResolver {
             alias("sd", "Shadow Demon"),
             alias("sb", "Spirit Breaker"),
             alias("od", "Outworld Destroyer", "Outworld Devourer"),
+            // Renombrado en el juego: el catálogo usa el nombre nuevo pero se sigue aceptando el viejo
+            alias("outworld destroyer", "Outworld Devourer", "Outworld Destroyer"),
             alias("vs", "Vengeful Spirit"),
             alias("wd", "Witch Doctor"),
             alias("bs", "Bloodseeker"),

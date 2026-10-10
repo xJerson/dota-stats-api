@@ -46,4 +46,12 @@ class ContextoTest {
         assertThat(sugerencias.roles().get(2)).isEqualTo(List.of("Nuker", "Carry"));
         assertThat(sugerencias.roles().get(5)).isEqualTo(List.of("Support"));
     }
+
+    @Test
+    void lasListasCuradasDeLas4y5SeEnlazanDesdeApplicationProperties() {
+        assertThat(sugerencias.heroesPosicion().get(4)).hasSize(30).contains("Tusk", "Treant Protector");
+        assertThat(sugerencias.heroesPosicion().get(5)).contains("Crystal Maiden", "Pugna")
+                .doesNotContain("Dark Seer");
+        assertThat(sugerencias.heroesPosicion()).doesNotContainKeys(1, 2, 3);
+    }
 }
