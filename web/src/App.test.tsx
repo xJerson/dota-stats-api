@@ -42,6 +42,13 @@ describe("App", () => {
     expect(llamadas).not.toContain("/api/draft/suggest");
   });
 
+  it("recuerda que el consejo es una ventaja para la fase de línea", () => {
+    render(<App />);
+    expect(
+      screen.getByText("Es una ventaja para la fase de línea. El resto depende de cómo juegues."),
+    ).toBeInTheDocument();
+  });
+
   it("elegir un enemigo pide sugerencias con el nombre exacto, mueve el foco y permite reiniciar", async () => {
     const user = userEvent.setup();
     render(<App />);

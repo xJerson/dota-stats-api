@@ -540,7 +540,15 @@ input {
   font-weight: 700;
   font-size: var(--titulo-m);
   line-height: 1;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
+}
+
+/* Nota discreta bajo el título: una línea, sin icono ni énfasis. */
+.centro__nota {
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+  line-height: 1.3;
+  margin-bottom: 8px;
 }
 
 .vacio {

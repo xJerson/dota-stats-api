@@ -4,6 +4,8 @@ API REST que actúa como **consultor de draft para Dota 2**: le indicas tu rol y
 
 También expone estadísticas de jugadores a partir de [OpenDota](https://docs.opendota.com/).
 
+> El consejo es una ventaja para la fase de línea (el inicio de la partida), no una garantía de victoria: el resto depende de cómo juegues.
+
 > Durante el draft, Valve no publica los picks de partidas de matchmaking. Por eso el draft lo ingresa el usuario.
 
 ## Características

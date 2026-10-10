@@ -31,6 +31,7 @@ export function Sugerencias({ estado, heroes, onReintentar, elegidoId, onElegir 
       <h2 id="titulo-sugerencias" className="centro__titulo">
         Mejores picks para ti
       </h2>
+      <p className="centro__nota">Es una ventaja para la fase de línea. El resto depende de cómo juegues.</p>
 
       {fase === "inactivo" && (
         <p className="vacio">Elige tu rol y agrega los héroes enemigos a medida que aparezcan.</p>
