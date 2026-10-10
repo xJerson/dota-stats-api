@@ -34,6 +34,7 @@ cd web && npm run typecheck && npm test && npm run build
 | Cliente de OpenDota | `client/OpenDotaClient*.java` |
 | Admin | `web/AdminController.java` (`POST /api/admin/refresh`, `GET /api/admin/estado`) |
 | Interfaz | `web/src/` (`App.tsx`, `components/HeroCombobox.tsx`, `components/Sugerencias.tsx`) |
+| Reglas de diseño de la interfaz | `web/DESIGN.md` |
 | Configuración y valores por defecto | `src/main/resources/application.properties` (todo está documentado ahí) |
 | Reglas de habilidades (borrador) | `docs/reglas-habilidades-borrador.md` |
 
@@ -100,6 +101,20 @@ El usuario piensa publicar la app para pocas personas. El riesgo principal no es
 - **Los tests no tocan la red.** Todo OpenDota va con mocks y los archivos temporales, en `@TempDir`.
 - **Pruebas en el navegador:** teclear solo después de un clic real; las primeras teclas tras navegar pueden perderse con la herramienta de prueba.
 - **Cambios de parche:** tras un parche grande, revisar las listas curadas de las posiciones 4 y 5 y las reglas de habilidades.
+
+## Skills y diseño de la interfaz
+
+**Antes de tocar `web/`, lee `web/DESIGN.md`**: tiene las reglas de diseño (colores, tipografía, accesibilidad, responsive y textos). Las skills son una función de Claude Code y otros agentes no pueden invocarlas, por eso las reglas están escritas en ese documento y no en una skill.
+
+### Skills usadas en este proyecto (Claude Code)
+- `frontend-design`: se cargó antes de construir la interfaz. Hay que volver a cargarla antes de cualquier cambio visual importante.
+- `claude-in-chrome`: para probar la interfaz en un navegador real y sacar capturas.
+- Memoria con Engram (`mem_save`, `mem_session_summary`): guardar decisiones, hallazgos y pendientes.
+
+### Skills recomendadas para lo que viene
+- `security-review`: para la fase 1 de seguridad.
+- `code-review`: antes de publicar.
+- `modern-web-guidance`: si se toca la parte web moderna (CSS, accesibilidad, rendimiento).
 
 ## Pendientes (en orden)
 
