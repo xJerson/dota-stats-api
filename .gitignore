@@ -1,0 +1,13 @@
+# Datos locales (cache de meta)
+data/
+
+# Build
+target/
+
+# Logs
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/
