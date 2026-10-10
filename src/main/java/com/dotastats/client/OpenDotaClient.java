@@ -27,6 +27,12 @@ public interface OpenDotaClient {
      */
     List<Map<String, Object>> obtenerHeroesJugador(long accountId);
 
+    /**
+     * /scenarios/laneRoles?lane_role={n} (1 segura, 2 central, 3 ofensiva, 4 jungla): varias filas por héroe, una por
+     * tramo de tiempo, con hero_id, lane_role, time, y games / wins como CADENAS ("21"), no como números.
+     */
+    List<Map<String, Object>> obtenerLaneRoles(int laneRole);
+
     /** Último parche publicado por OpenDota (el de id más alto). */
     Parche obtenerParche();
 }

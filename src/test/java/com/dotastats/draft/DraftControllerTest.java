@@ -37,6 +37,29 @@ class DraftControllerTest {
     @MockBean
     private MotorSugerencias motorSugerencias;
 
+    @MockBean
+    private CatalogoHeroesService catalogo;
+
+    @Test
+    void heroesDevuelveElCatalogoConImagenRolesYAlias() throws Exception {
+        when(catalogo.listar()).thenReturn(List.of(new HeroeInfo(11, "Shadow Fiend",
+                "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/nevermore.png",
+                "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/icons/nevermore.png",
+                List.of("Carry", "Nuker"), List.of("sf"))));
+
+        mockMvc.perform(get("/api/draft/heroes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(11))
+                .andExpect(jsonPath("$[0].nombre").value("Shadow Fiend"))
+                .andExpect(jsonPath("$[0].img").value(
+                        "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/nevermore.png"))
+                .andExpect(jsonPath("$[0].icono").value(
+                        "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/icons/nevermore.png"))
+                .andExpect(jsonPath("$[0].roles[1]").value("Nuker"))
+                .andExpect(jsonPath("$[0].alias[0]").value("sf"));
+    }
+
     @BeforeEach
     void motorSinSugerenciasPorDefecto() {
         when(motorSugerencias.sugerir(anyInt(), anyList(), anyList()))

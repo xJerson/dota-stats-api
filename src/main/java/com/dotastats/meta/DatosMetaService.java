@@ -37,7 +37,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Mantiene en memoria los datos de meta con carga perezosa para gastar las mínimas peticiones a OpenDota.
  * <ul>
- *   <li>Base ({@link DatosMeta}): /heroStats y el parche, cargados en segundo plano al arrancar (o leídos del
+ *   <li>Base ({@link DatosMeta}): /heroStats, el parche y las partidas por línea (3 peticiones a
+ *       /scenarios/laneRoles, opcionales: si fallan el meta se carga igual), cargados en segundo plano al arrancar (o leídos del
  *       archivo de caché en disco, sin tocar la red).</li>
  *   <li>Matchups: se piden {@code /heroes/{enemigo}/matchups} solo cuando un draft incluye a ese enemigo y aún no
  *       está en caché; peticiones simultáneas por el mismo héroe comparten una única llamada. Los fallos no se
@@ -269,7 +270,7 @@ public class DatosMetaService {
                 HeroeMeta heroe = aHeroe(s);
                 heroes.put(heroe.id(), heroe);
             }
-            DatosMeta nuevos = new DatosMeta(heroes, parche, reloj.instant());
+            DatosMeta nuevos = new DatosMeta(heroes, parche, reloj.instant(), cargarLineas());
             synchronized (cerrojo) {
                 generacion++;
                 matchups.clear();
@@ -288,6 +289,31 @@ public class DatosMetaService {
             noReintentarHasta = reloj.instant().plus(ttlParche());
             log.warn("Falló la carga de datos de meta: {}", ultimoError);
         }
+    }
+
+    /**
+     * Partidas por héroe en las líneas 1-3 ({@code /scenarios/laneRoles}, una petición por línea). Si cualquiera falla
+     * o llega vacía devuelve un mapa vacío: el meta se carga igual y el motor recurre a las etiquetas de rol.
+     */
+    private Map<Integer, Map<Integer, Long>> cargarLineas() {
+        Map<Integer, Map<Integer, Long>> lineas = new HashMap<>();
+        try {
+            for (int linea = 1; linea <= 3; linea++) {
+                List<Map<String, Object>> filas = client.obtenerLaneRoles(linea);
+                if (filas == null || filas.isEmpty()) {
+                    throw new OpenDotaNoDisponibleException("OpenDota no devolvió datos de la línea " + linea);
+                }
+                Map<Integer, Long> porHeroe = new HashMap<>();
+                for (Map<String, Object> f : filas) {
+                    porHeroe.merge((int) numero(f.get("hero_id")), numero(f.get("games")), Long::sum);
+                }
+                lineas.put(linea, porHeroe);
+            }
+        } catch (RuntimeException e) {
+            log.warn("No se pudieron obtener las líneas de los héroes, se usarán las etiquetas de rol: {}", e.getMessage());
+            return Map.of();
+        }
+        return lineas;
     }
 
     private Obtenido obtener(int enemigoId, boolean yaDescargoEnEstaLlamada) {
@@ -424,8 +450,19 @@ public class DatosMetaService {
         return Map.copyOf(duelos);
     }
 
+    /** Acepta números y cadenas numéricas (/scenarios/laneRoles entrega games y wins como cadenas). */
     private static long numero(Object valor) {
-        return valor instanceof Number n ? n.longValue() : 0L;
+        if (valor instanceof Number n) {
+            return n.longValue();
+        }
+        if (valor instanceof String texto) {
+            try {
+                return Long.parseLong(texto.trim());
+            } catch (NumberFormatException e) {
+                return 0L;
+            }
+        }
+        return 0L;
     }
 
     private void pausar() {

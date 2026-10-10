@@ -72,7 +72,15 @@ class MotorSugerenciasPuntajeTest {
     }
 
     private void publicar() {
-        DatosMeta datos = new DatosMeta(heroes, new Parche(60, "7.41"), Instant.parse("2026-10-10T12:00:00Z"));
+        // Por defecto los carries (1-4, 9) juegan siempre la línea segura y los soportes la ofensiva.
+        Map<Integer, Long> segura = Map.of(1, 1000L, 2, 1000L, 3, 1000L, 4, 1000L, 9, 1000L);
+        Map<Integer, Long> ofensiva = Map.of(5, 1000L, 6, 1000L);
+        publicar(Map.of(1, segura, 2, Map.of(), 3, ofensiva));
+    }
+
+    private void publicar(Map<Integer, Map<Integer, Long>> partidasPorLinea) {
+        DatosMeta datos = new DatosMeta(heroes, new Parche(60, "7.41"), Instant.parse("2026-10-10T12:00:00Z"),
+                partidasPorLinea);
         when(servicio.datosParaSugerir()).thenReturn(datos);
     }
 
@@ -334,7 +342,7 @@ class MotorSugerenciasPuntajeTest {
 
     @Test
     void elMinimoDePartidasParaCitarElWinrateEsConfigurable() {
-        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 2, null);
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 2, 0.20, 30, null, null);
         MotorSugerenciasPuntaje otro = new MotorSugerenciasPuntaje(servicio, perfiles, props);
         when(perfiles.obtener(CUENTA)).thenReturn(rendimiento(4, 2, 1));
 
@@ -345,7 +353,7 @@ class MotorSugerenciasPuntajeTest {
 
     @Test
     void elPesoYLaFuerzaPersonalesSonConfigurables() {
-        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.5, 100, 5, null);
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.5, 100, 5, 0.20, 30, null, null);
         MotorSugerenciasPuntaje otro = new MotorSugerenciasPuntaje(servicio, perfiles, props);
         when(perfiles.obtener(CUENTA)).thenReturn(rendimiento(2, 100, 100));
         double meta = de(sugerir(1, List.of(), List.of()), 2).puntaje();
@@ -393,5 +401,123 @@ class MotorSugerenciasPuntajeTest {
 
         assertThatThrownBy(() -> motor.sugerir(1, List.of(), List.of()))
                 .isInstanceOf(DatosNoCargadosException.class);
+    }
+
+    // --- Filtro por posición con datos de línea (/scenarios/laneRoles) ---
+
+    @Test
+    void laPosicionDosUsaLaLineaCentralYNoLasEtiquetas() {
+        // Alfa juega 80% central y Delta 31%; Beta (también "Carry" por etiqueta) solo 5% central: no es mid.
+        publicar(Map.of(
+                1, Map.of(1, 100L, 2, 900L, 4, 800L),
+                2, Map.of(1, 800L, 2, 50L, 4, 400L),
+                3, Map.of(1, 100L, 2, 50L, 4, 100L)));
+
+        List<Sugerencia> r = sugerir(2, List.of(), List.of());
+
+        assertThat(ids(r)).containsExactly(1, 4);
+    }
+
+    @Test
+    void laPosicionUnoYTresUsanSuPropiaLinea() {
+        publicar(Map.of(
+                1, Map.of(1, 900L, 2, 100L),
+                2, Map.of(1, 50L, 2, 100L),
+                3, Map.of(1, 50L, 2, 800L)));
+
+        assertThat(ids(sugerir(1, List.of(), List.of()))).containsExactly(1);
+        assertThat(ids(sugerir(3, List.of(), List.of()))).containsExactly(2);
+    }
+
+    @Test
+    void elUmbralDeParticipacionEsInclusivoYSeCalculaSobreLasTresLineas() {
+        // Alfa: central = 300 de 1000 = 0.30 exacto -> entra. Beta: 299 de 1000 -> no entra.
+        publicar(Map.of(
+                1, Map.of(1, 350L, 2, 351L),
+                2, Map.of(1, 300L, 2, 299L),
+                3, Map.of(1, 350L, 2, 350L)));
+
+        assertThat(ids(sugerir(2, List.of(), List.of()))).containsExactly(1);
+    }
+
+    @Test
+    void laPosicionUnoExigeAdemasLaEtiquetaCarryPorqueLosSoportesTambienJueganLaLineaSegura() {
+        // Epsilon (Support) pasa el filtro de línea con 100% de partidas en la segura, pero no es carry.
+        publicar(Map.of(
+                1, Map.of(1, 900L, 5, 900L),
+                2, Map.of(),
+                3, Map.of(1, 100L)));
+
+        assertThat(ids(sugerir(1, List.of(), List.of()))).containsExactly(1);
+    }
+
+    @Test
+    void unHeroeConPocasPartidasEnLaLineaNoEsCandidatoAunqueSuParticipacionSeaAlta() {
+        // Gamma: 100% central pero con 29 partidas (< 30). Alfa tiene 30 y entra.
+        publicar(Map.of(
+                1, Map.of(),
+                2, Map.of(1, 30L, 3, 29L),
+                3, Map.of()));
+
+        assertThat(ids(sugerir(2, List.of(), List.of()))).containsExactly(1);
+    }
+
+    @Test
+    void unHeroeSinNingunaFilaDeLineaNoEsCandidatoSiHayDatosDeLinea() {
+        publicar(Map.of(1, Map.of(), 2, Map.of(1, 500L), 3, Map.of()));
+
+        assertThat(ids(sugerir(2, List.of(), List.of()))).containsExactly(1);
+    }
+
+    @Test
+    void elUmbralYElMinimoDeLineaSonConfigurables() {
+        publicar(Map.of(
+                1, Map.of(1, 500L, 2, 800L),
+                2, Map.of(1, 500L, 2, 10L),
+                3, Map.of()));
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.01, 5, null, null);
+        MotorSugerenciasPuntaje laxo = new MotorSugerenciasPuntaje(servicio, perfiles, props);
+
+        assertThat(ids(laxo.sugerir(2, List.of(), List.of()).sugerencias())).containsExactly(1, 2);
+        assertThat(ids(sugerir(2, List.of(), List.of()))).containsExactly(1);
+    }
+
+    @Test
+    void lasPosicionesCuatroYCincoSiguenUsandoLaEtiquetaSupportSinAdvertencias() {
+        publicar(Map.of());
+
+        ResultadoSugerencias r = motor.sugerir(5, List.of(), List.of());
+
+        assertThat(ids(r.sugerencias())).containsExactly(5, 6);
+        assertThat(r.advertencias()).isEmpty();
+    }
+
+    @Test
+    void sinDatosDeLineaUsaLasEtiquetasYAdvierte() {
+        publicar(Map.of());
+
+        ResultadoSugerencias r = motor.sugerir(1, List.of(), List.of());
+
+        assertThat(ids(r.sugerencias())).containsExactly(1, 2, 4);
+        assertThat(r.advertencias()).hasSize(1);
+        assertThat(r.advertencias().get(0)).contains("línea").contains("etiquetas");
+    }
+
+    @Test
+    void laAdvertenciaDeLineaConviveConLasDeMatchups() {
+        publicar(Map.of());
+        fallidos.add(9);
+
+        assertThat(motor.sugerir(1, List.of(9), List.of()).advertencias()).hasSize(2);
+    }
+
+    @Test
+    void laExclusionManualQuitaAlHeroePorNombreSinDistinguirMayusculas() {
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.20, 30, null,
+                Map.of(1, List.of("alfa ")));
+        MotorSugerenciasPuntaje otro = new MotorSugerenciasPuntaje(servicio, perfiles, props);
+
+        assertThat(ids(otro.sugerir(1, List.of(), List.of()).sugerencias())).containsExactly(2, 4, 9);
+        assertThat(ids(otro.sugerir(5, List.of(), List.of()).sugerencias())).containsExactly(5, 6);
     }
 }

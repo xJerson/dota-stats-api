@@ -62,4 +62,18 @@ class OpenDotaClientImplTest {
 
         assertThatThrownBy(() -> client.obtenerHeroesJugador(42L)).isInstanceOf(OpenDotaNoDisponibleException.class);
     }
+
+    @Test
+    void pideLasLineasPorRolYDevuelveLasFilasTalCualLasEntregaOpenDota() {
+        servidor.expect(requestTo("http://opendota.test/api/scenarios/laneRoles?lane_role=2"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("[{\"hero_id\":1,\"lane_role\":2,\"time\":900,\"games\":\"5\",\"wins\":\"0\"}]",
+                        MediaType.APPLICATION_JSON));
+
+        List<Map<String, Object>> filas = client.obtenerLaneRoles(2);
+
+        assertThat(filas).hasSize(1);
+        assertThat(filas.get(0)).containsEntry("hero_id", 1).containsEntry("games", "5");
+        servidor.verify();
+    }
 }

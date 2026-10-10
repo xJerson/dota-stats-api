@@ -54,7 +54,33 @@ GET /api/draft/roles
 | 4 | Soft support |
 | 5 | Hard support |
 
-### 2. Pedir sugerencias
+### 2. Listar los héroes
+
+```http
+GET /api/draft/heroes
+```
+
+Devuelve el catálogo ordenado por nombre. Usa el catálogo de OpenDota ya cacheado, así que no hace llamadas extra.
+
+```json
+[
+  {
+    "id": 11,
+    "nombre": "Shadow Fiend",
+    "img": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/nevermore.png",
+    "icono": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/icons/nevermore.png",
+    "roles": ["Carry", "Nuker"],
+    "alias": ["sf"]
+  }
+]
+```
+
+| Campo | Descripción |
+|---|---|
+| `img` / `icono` | Retrato y miniatura (URL absoluta). Pueden ser `null` si el catálogo no trae el nombre interno. |
+| `alias` | Abreviaturas integradas que resuelven a ese héroe (las mismas que acepta `/suggest`). |
+
+### 3. Pedir sugerencias
 
 ```http
 POST /api/draft/suggest
@@ -64,7 +90,7 @@ Content-Type: application/json
 ```json
 {
   "miRol": 2,
-  "enemigos": { "1": "slark", "2": "sf", "3": null, "4": "cm", "5": "lion" },
+  "enemigos": { "1": "slark", "2": "sf" },
   "aliados": {},
   "steamId": "opcional"
 }
@@ -83,15 +109,15 @@ Respuesta:
 {
   "miRol": 2,
   "resueltos": {
-    "enemigos": { "1": "Slark", "2": "Shadow Fiend", "4": "Crystal Maiden", "5": "Lion" },
+    "enemigos": { "1": "Slark", "2": "Shadow Fiend" },
     "aliados": {}
   },
   "ambiguos": { "enemigos": {}, "aliados": {} },
   "noEncontrados": { "enemigos": {}, "aliados": {} },
   "sugerencias": [
-    { "heroId": 92, "heroe": "Visage", "puntaje": 0.544, "motivo": "55.3% en el meta; fuerte contra Lion (60%)" },
-    { "heroId": 62, "heroe": "Bounty Hunter", "puntaje": 0.542, "motivo": "54.5% en el meta; fuerte contra Lion (57%) y Shadow Fiend (57%)" },
-    { "heroId": 88, "heroe": "Nyx Assassin", "puntaje": 0.537, "motivo": "52.8% en el meta; fuerte contra Crystal Maiden (73%) y Shadow Fiend (57%)" }
+    { "heroId": 76, "heroe": "Outworld Devourer", "puntaje": 0.535, "motivo": "54.4% en el meta; fuerte contra Slark (56%)" },
+    { "heroId": 82, "heroe": "Meepo", "puntaje": 0.527, "motivo": "53.6% en el meta; fuerte contra Shadow Fiend (59%)" },
+    { "heroId": 32, "heroe": "Riki", "puntaje": 0.522, "motivo": "53.2% en el meta" }
   ],
   "advertencias": []
 }
@@ -101,16 +127,41 @@ Respuesta:
 - `ambiguos`: slots cuyo texto coincide con varios héroes; vuelve a enviarlos con más precisión.
 - `advertencias`: avisos no fatales, por ejemplo si OpenDota falló al pedir un matchup y ese enemigo se evaluó solo con el meta.
 
-### 3. Administración de datos
+### 4. Administración de datos
 
 | Endpoint | Descripción |
 |---|---|
 | `GET /api/admin/estado` | Parche cargado, si está obsoleto, matchups en caché y si se usó la caché de disco. |
 | `POST /api/admin/refresh` | Descarta la caché (memoria y disco) y recarga. Responde `202`. |
 
-### 4. Estadísticas de jugador
+### 5. Estadísticas de jugador
 
 Proxy a los endpoints de jugadores de OpenDota, bajo `/api/jugadores/{steamId}`: `/wl`, `/recentMatches`, `/matches`, `/heroes`, `/peers`, `/totals`, `/counts`, `/ratings`, `/rankings`, `/recomendaciones`, entre otros.
+
+## Interfaz web
+
+La carpeta `web/` contiene una interfaz en React + TypeScript + Vite para cargar el draft: tablero con Dire (enemigos) y Radiant (tu equipo), selector de rol, Steam ID opcional y las 3 sugerencias al centro.
+
+Requisitos: Node 20 y npm 10.
+
+```bash
+# Terminal 1: la API en http://localhost:8080
+mvn spring-boot:run
+
+# Terminal 2: la interfaz en http://localhost:5173
+cd web
+npm install
+npm run dev
+```
+
+En desarrollo, Vite reenvía `/api` a `http://localhost:8080`, así que no hace falta configurar CORS. Si sirves la interfaz desde otro origen, agrégalo en `dotastats.web.cors-origins` (lista separada por comas; por defecto `http://localhost:5173`).
+
+| Comando (dentro de `web/`) | Qué hace |
+|---|---|
+| `npm run dev` | Servidor de desarrollo con recarga. |
+| `npm run build` | Revisa tipos y genera `web/dist`. |
+| `npm run typecheck` | Solo revisa tipos. |
+| `npm test` | Tests con Vitest y Testing Library. |
 
 ## Cómo se calcula el puntaje
 
@@ -125,7 +176,14 @@ puntaje   = 0.75 × (0.4 × meta + 0.6 × counter) + 0.25 × personal       (con
 
 Cuando falta información (un duelo sin partidas, un héroe que nunca jugaste), el término vale exactamente el meta del héroe: no da ventaja ni castiga.
 
-Los candidatos se filtran por posición según las etiquetas de rol de OpenDota (por ejemplo, posición 5 → `Support`). Es una heurística configurable.
+### Qué héroes son candidatos a cada posición
+
+- **Posiciones 1, 2 y 3** usan datos reales de línea de OpenDota (`/scenarios/laneRoles`: 1 = línea segura, 2 = central, 3 = ofensiva). Un héroe es candidato a la posición N si su participación en la línea N (`partidas en la línea N / partidas en las líneas 1-3`) es al menos `umbral-linea` (30 % por defecto) **y** tiene al menos `min-partidas-linea` partidas (30) en ella. La posición 1 exige además la etiqueta `Carry`, porque los soportes también juegan la línea segura. Así un héroe etiquetado `Carry` que casi siempre juega la línea segura ya no aparece como mid.
+- **Posiciones 4 y 5** siguen usando las etiquetas de rol de OpenDota (`Support`, y `Initiator` para la 4): los datos de línea no distinguen a un soporte de un núcleo que juega la misma línea.
+- **Sin datos de línea** (OpenDota falló al cargarlas) las posiciones 1-3 recurren a las etiquetas y la respuesta incluye una entrada en `advertencias`.
+- `dotastats.sugerencias.excluir-posicion.N` permite quitar a mano héroes concretos de una posición.
+
+Los datos de línea se piden junto con `/heroStats` (3 peticiones más), se guardan en la caché en disco y se descartan con el parche, igual que el resto del meta.
 
 ## Configuración
 
@@ -134,11 +192,15 @@ Todo está en `src/main/resources/application.properties` y documentado ahí. Lo
 | Propiedad | Por defecto | Descripción |
 |---|---|---|
 | `dotastats.meta.brackets` | `6,7` | Brackets de OpenDota que se suman (1 = Herald … 7 = Divine, 8 = Immortal). |
+| `dotastats.web.cors-origins` | `http://localhost:5173` | Orígenes con permiso CORS sobre `/api/**`, separados por coma. |
 | `dotastats.meta.cache-file` | `./data/meta-cache.json` | Caché en disco. Vacío = sin caché de disco. |
 | `dotastats.meta.ttl-parche-minutos` | `30` | Cada cuánto se verifica si hay parche nuevo. |
 | `dotastats.sugerencias.peso-meta` / `peso-contra` | `0.4` / `0.6` | Pesos del puntaje. |
 | `dotastats.sugerencias.peso-personal` | `0.25` | Peso del historial propio cuando se envía `steamId`. |
-| `dotastats.sugerencias.roles.N` | ver archivo | Etiquetas de rol aceptadas para la posición N. |
+| `dotastats.sugerencias.umbral-linea` | `0.30` | Posiciones 1-3: participación mínima del héroe en la línea de la posición (sobre sus partidas en las líneas 1-3). |
+| `dotastats.sugerencias.min-partidas-linea` | `30` | Posiciones 1-3: partidas mínimas del héroe en esa línea. |
+| `dotastats.sugerencias.roles.N` | ver archivo | Etiquetas de rol aceptadas para la posición N (posiciones 4-5, y 1-3 sin datos de línea). |
+| `dotastats.sugerencias.excluir-posicion.N` | vacío | Nombres de héroe (separados por coma) que nunca se sugieren en la posición N. |
 
 ## Errores
 
@@ -175,15 +237,16 @@ src/main/java/com/dotastats/
 ├── client/     # Cliente de OpenDota
 ├── web/        # Controllers de jugador y admin, manejo de errores
 ├── service/    # Recomendaciones sobre el rendimiento del jugador
-├── config/     # Configuración de cliente HTTP, caché y propiedades
+├── config/     # Configuración de cliente HTTP, caché, CORS y propiedades
 └── util/       # Conversión de SteamID
+
+web/            # Interfaz web (React + TypeScript + Vite)
 ```
 
 ## Próximos pasos
 
 - Sinergia con los aliados elegidos.
 - Mejor asignación de héroes por posición.
-- Interfaz web para cargar el draft.
 
 ## Créditos
 

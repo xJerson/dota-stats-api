@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Motor de sugerencias basado en datos de meta de OpenDota.
@@ -31,6 +32,18 @@ import java.util.Set;
  * </ul>
  * Los matchups de cada enemigo se piden de forma perezosa a {@link DatosMetaService}. Las sinergias con
  * aliados no se consideran todavía.
+ * <p>
+ * Candidatos por posición:
+ * <ul>
+ *   <li>Posiciones 1-3 con datos de línea (/scenarios/laneRoles, lane_role 1 segura, 2 central, 3 ofensiva): el héroe
+ *       entra si su participación en la línea de la posición (partidas en ella / partidas en las líneas 1-3) es
+ *       {@code >= umbralLinea} y tiene al menos {@code minPartidasLinea} partidas en esa línea. La posición 1 exige
+ *       además una etiqueta de núcleo ({@code Carry}): los soportes también juegan la línea segura.</li>
+ *   <li>Posiciones 4-5, o 1-3 sin datos de línea (entonces con una advertencia): al menos una de las etiquetas de
+ *       OpenDota configuradas para la posición (los datos de línea no distinguen a los soportes: juegan en la
+ *       línea segura u ofensiva igual que un núcleo).</li>
+ *   <li>Aparte, la lista {@code excluirPosicion} quita héroes concretos de una posición.</li>
+ * </ul>
  * <p>
  * Personalización opcional (petición con cuenta de jugador): se añade un componente personal con peso
  * {@code w = pesoPersonal} y el resto se reescala por {@code (1 - w)}, de modo que los pesos siguen sumando 1:
@@ -82,11 +95,24 @@ public class MotorSugerenciasPuntaje implements MotorSugerencias {
         Set<Integer> elegidos = new HashSet<>(enemigos);
         elegidos.addAll(aliados);
         List<String> rolesValidos = props.roles().getOrDefault(miRol, List.of());
+        Integer linea = lineaDe(miRol);
+        boolean porLinea = linea != null && datos.partidasPorLinea().getOrDefault(linea, Map.of()).size() > 0;
+        if (linea != null && !porLinea) {
+            advertencias.add("No hay datos de línea de OpenDota; las sugerencias de la posición " + miRol
+                    + " se filtraron solo por las etiquetas de rol de los héroes, así que pueden incluir héroes "
+                    + "que no suelen jugarse ahí.");
+        }
+        Set<String> excluidos = props.excluirPosicion().getOrDefault(miRol, List.of()).stream()
+                .map(n -> n.trim().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
 
         RendimientoJugador historial = personal;
         List<Sugerencia> sugerencias = datos.heroes().values().stream()
                 .filter(h -> !elegidos.contains(h.id()))
-                .filter(h -> rolesValidos.isEmpty() || h.roles().stream().anyMatch(rolesValidos::contains))
+                .filter(h -> !excluidos.contains(h.nombre().toLowerCase(Locale.ROOT)))
+                .filter(h -> porLinea
+                        ? juegaLaLinea(h.id(), linea, datos) && cumpleEtiquetaDeNucleo(h, miRol, rolesValidos)
+                        : rolesValidos.isEmpty() || h.roles().stream().anyMatch(rolesValidos::contains))
                 .map(h -> puntuar(h, datos, enemigos, matchups, historial))
                 .sorted(Comparator.comparingDouble(Sugerencia::puntaje).reversed()
                         .thenComparingInt(Sugerencia::heroId))
@@ -94,6 +120,28 @@ public class MotorSugerenciasPuntaje implements MotorSugerencias {
                 .toList();
         advertencias.addAll(advertencias(datos, enemigos, matchups));
         return new ResultadoSugerencias(sugerencias, advertencias);
+    }
+
+    /** lane_role de OpenDota que corresponde a una posición núcleo (1-3); null para las posiciones 4-5. */
+    private static Integer lineaDe(int posicion) {
+        return posicion >= 1 && posicion <= 3 ? posicion : null;
+    }
+
+    /**
+     * La línea segura la juegan también los soportes (la línea es de la lane, no de la posición), así que la posición 1
+     * exige además una etiqueta de núcleo (por defecto {@code Carry}). En la central y la ofensiva solo cuenta la línea.
+     */
+    private static boolean cumpleEtiquetaDeNucleo(HeroeMeta h, int posicion, List<String> rolesValidos) {
+        return posicion != 1 || rolesValidos.isEmpty() || h.roles().stream().anyMatch(rolesValidos::contains);
+    }
+
+    private boolean juegaLaLinea(int heroId, int linea, DatosMeta datos) {
+        long total = 0;
+        for (int l = 1; l <= 3; l++) {
+            total += datos.partidasPorLinea().getOrDefault(l, Map.of()).getOrDefault(heroId, 0L);
+        }
+        long enLinea = datos.partidasPorLinea().getOrDefault(linea, Map.of()).getOrDefault(heroId, 0L);
+        return total > 0 && enLinea >= props.minPartidasLinea() && (double) enLinea / total >= props.umbralLinea();
     }
 
     private Sugerencia puntuar(HeroeMeta heroe, DatosMeta datos, List<Integer> enemigos, MatchupsEnemigos matchups,

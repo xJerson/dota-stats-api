@@ -21,7 +21,13 @@ import java.util.Map;
  * @param fuerzaPriorPersonal partidas "virtuales" con el winrate de meta del candidato que se suman al historial
  *                          del jugador con ese héroe: sin partidas el componente personal vale exactamente el meta
  * @param minPartidasPersonal partidas mínimas del jugador con el héroe para citar su winrate en el motivo
- * @param roles             posición (1-5) -> roles de OpenDota aceptados; ver {@link #ROLES_POR_DEFECTO}
+ * @param umbralLinea       posiciones 1-3: participación mínima (0..1) del héroe en la línea de esa posición, sobre
+ *                          sus partidas totales en las líneas 1-3 (segura, central, ofensiva). La posición 1 exige
+ *                          además alguna etiqueta de {@code roles[1]}, porque los soportes también juegan la segura
+ * @param minPartidasLinea  posiciones 1-3: partidas mínimas del héroe en esa línea para ser candidato
+ * @param roles             posición (1-5) -> roles de OpenDota aceptados; ver {@link #ROLES_POR_DEFECTO}. Se usa
+ *                          siempre en las posiciones 4-5 y, en las 1-3, solo si no hay datos de línea
+ * @param excluirPosicion   posición (1-5) -> nombres de héroe que nunca se sugieren en ella (anulación manual)
  */
 @ConfigurationProperties("dotastats.sugerencias")
 public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
@@ -32,11 +38,15 @@ public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
                                     @DefaultValue("0.25") double pesoPersonal,
                                     @DefaultValue("20") double fuerzaPriorPersonal,
                                     @DefaultValue("5") int minPartidasPersonal,
-                                    Map<Integer, List<String>> roles) {
+                                    @DefaultValue("0.30") double umbralLinea,
+                                    @DefaultValue("30") long minPartidasLinea,
+                                    Map<Integer, List<String>> roles,
+                                    Map<Integer, List<String>> excluirPosicion) {
 
     /**
      * Heurística, no una verdad del juego: OpenDota no sabe en qué posición se juega un héroe, solo le
      * pone etiquetas de rol. Un héroe es candidato a una posición si tiene AL MENOS UNA de sus etiquetas.
+     * Para las posiciones 1-3 es solo el plan B cuando faltan los datos de línea (ver {@link #umbralLinea}).
      * <ul>
      *   <li>1 (carry): Carry</li>
      *   <li>2 (mid): Nuker, Carry</li>
@@ -59,9 +69,10 @@ public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
             completo.putAll(roles);
         }
         roles = Map.copyOf(completo);
+        excluirPosicion = excluirPosicion == null ? Map.of() : Map.copyOf(excluirPosicion);
     }
 
     public static SugerenciasProperties porDefecto() {
-        return new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, null);
+        return new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.30, 30, null, null);
     }
 }

@@ -647,4 +647,66 @@ class DatosMetaServiceTest {
         assertThat(segundo.estado().matchupsEnCache()).isZero();
         assertThat(new CacheDisco(archivoCache).cargar().orElseThrow().matchups()).isEmpty();
     }
+
+    private static Map<String, Object> fila(int heroId, int lane, int tiempo, String partidas) {
+        return Map.of("hero_id", heroId, "lane_role", lane, "time", tiempo, "games", partidas, "wins", "1");
+    }
+
+    private void lineasDisponibles() {
+        when(client.obtenerLaneRoles(1)).thenReturn(List.of(fila(1, 1, 900, "5"), fila(1, 1, 1800, "20"), fila(2, 1, 900, "7")));
+        when(client.obtenerLaneRoles(2)).thenReturn(List.of(fila(1, 2, 900, "3")));
+        when(client.obtenerLaneRoles(3)).thenReturn(List.of(fila(3, 3, 900, "40")));
+    }
+
+    @Test
+    void cargaLasTresLineasSumandoLosTramosDeTiempoYConvirtiendoLasCadenas() {
+        lineasDisponibles();
+        DatosMetaService s = servicio(Runnable::run);
+
+        s.refrescar();
+
+        Map<Integer, Map<Integer, Long>> lineas = s.datosParaSugerir().partidasPorLinea();
+        assertThat(lineas.get(1)).containsOnly(Map.entry(1, 25L), Map.entry(2, 7L));
+        assertThat(lineas.get(2)).containsOnly(Map.entry(1, 3L));
+        assertThat(lineas.get(3)).containsOnly(Map.entry(3, 40L));
+        verify(client, never()).obtenerLaneRoles(4);
+    }
+
+    @Test
+    void siFallaUnaLineaNoHayDatosDeLineaPeroElMetaSeCargaIgual() {
+        lineasDisponibles();
+        when(client.obtenerLaneRoles(2)).thenThrow(new OpenDotaNoDisponibleException("límite"));
+        DatosMetaService s = servicio(Runnable::run);
+
+        s.refrescar();
+
+        DatosMeta d = s.datosParaSugerir();
+        assertThat(d.heroes()).hasSize(3);
+        assertThat(d.partidasPorLinea()).isEmpty();
+    }
+
+    @Test
+    void unaLineaVaciaTambienSeConsideraNoDisponible() {
+        lineasDisponibles();
+        when(client.obtenerLaneRoles(3)).thenReturn(List.of());
+        DatosMetaService s = servicio(Runnable::run);
+
+        s.refrescar();
+
+        assertThat(s.datosParaSugerir().partidasPorLinea()).isEmpty();
+    }
+
+    @Test
+    void lasLineasSePersistenEnDiscoYAlIniciarSeReutilizanSinTocarLaRed() {
+        lineasDisponibles();
+        servicio(Runnable::run).refrescar();
+
+        OpenDotaClient otroClient = mock(OpenDotaClient.class);
+        DatosMetaService segundo = new DatosMetaService(otroClient, props(List.of(6, 7), 30, 0, true),
+                new CacheDisco(archivoCache), Runnable::run, RELOJ);
+        segundo.cargarAlIniciar();
+
+        assertThat(segundo.datosParaSugerir().partidasPorLinea().get(1)).containsEntry(1, 25L);
+        verify(otroClient, never()).obtenerLaneRoles(anyInt());
+    }
 }

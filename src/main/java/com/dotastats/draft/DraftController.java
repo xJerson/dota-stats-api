@@ -21,8 +21,11 @@ public class DraftController {
 
     private final HeroeAliasResolver resolver;
     private final MotorSugerencias motorSugerencias;
+    private final CatalogoHeroesService catalogo;
 
-    public DraftController(HeroeAliasResolver resolver, MotorSugerencias motorSugerencias) {
+    public DraftController(HeroeAliasResolver resolver, MotorSugerencias motorSugerencias,
+                           CatalogoHeroesService catalogo) {
+        this.catalogo = catalogo;
         this.resolver = resolver;
         this.motorSugerencias = motorSugerencias;
     }
@@ -30,6 +33,11 @@ public class DraftController {
     @GetMapping("/roles")
     public List<Rol> roles() {
         return Rol.TODOS;
+    }
+
+    @GetMapping("/heroes")
+    public List<HeroeInfo> heroes() {
+        return catalogo.listar();
     }
 
     @PostMapping("/suggest")

@@ -81,6 +81,16 @@ public class OpenDotaClientImpl implements OpenDotaClient {
                 }));
     }
 
+    // Sin @Cacheable: DatosMetaService las conserva dentro del snapshot de meta.
+    @Override
+    public List<Map<String, Object>> obtenerLaneRoles(int laneRole) {
+        return ejecutarSinJugador(() -> restClient.get()
+                .uri(uriBuilder -> uriBuilder.path("/scenarios/laneRoles").queryParam("lane_role", laneRole).build())
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<Map<String, Object>>>() {
+                }));
+    }
+
     // Sin @Cacheable: PerfilJugadorService cachea el resultado ya interpretado (y sin cachear perfiles privados).
     @Override
     public List<Map<String, Object>> obtenerHeroesJugador(long accountId) {

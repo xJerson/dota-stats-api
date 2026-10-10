@@ -25,7 +25,8 @@ class CacheDiscoTest {
         DatosMeta datos = new DatosMeta(
                 Map.of(1, new HeroeMeta(1, "Alfa", Set.of("Carry", "Nuker"), 1500, 780)),
                 new Parche(60, "7.41"),
-                Instant.parse("2026-10-10T12:00:00Z"));
+                Instant.parse("2026-10-10T12:00:00Z"),
+                Map.of(1, Map.of(1, 700L), 2, Map.of(1, 200L), 3, Map.of(1, 100L)));
         return new SnapshotMeta(SnapshotMeta.VERSION, datos, Map.of(1, Map.of(2, new Duelo(90, 50))));
     }
 
@@ -42,6 +43,18 @@ class CacheDiscoTest {
         assertThat(leido.get().datos().heroes().get(1).roles()).containsExactlyInAnyOrder("Carry", "Nuker");
         assertThat(leido.get().datos().heroes().get(1).victorias()).isEqualTo(780);
         assertThat(leido.get().matchups().get(1).get(2)).isEqualTo(new Duelo(90, 50));
+        assertThat(leido.get().datos().partidasPorLinea().get(2).get(1)).isEqualTo(200L);
+    }
+
+    @Test
+    void unaCacheDeVersionAnteriorSinDatosDeLineaSeIgnoraEnVezDeFallar() throws IOException {
+        Path archivo = dir.resolve("meta-cache.json");
+        Files.writeString(archivo, """
+                {"version":1,"datos":{"heroes":{"1":{"id":1,"nombre":"Alfa","roles":["Carry"],"partidas":10,"victorias":5}},
+                "parche":{"id":60,"nombre":"7.41"},"cargadoEn":"2026-10-10T12:00:00Z"},"matchups":{}}
+                """);
+
+        assertThat(new CacheDisco(archivo).cargar()).isEmpty();
     }
 
     @Test
@@ -70,7 +83,7 @@ class CacheDiscoTest {
         Path archivo = dir.resolve("meta-cache.json");
         CacheDisco cache = new CacheDisco(archivo);
         cache.guardar(snapshot());
-        Files.writeString(archivo, Files.readString(archivo).replace("\"version\" : 1", "\"version\" : 99"));
+        Files.writeString(archivo, Files.readString(archivo).replace("\"version\" : " + SnapshotMeta.VERSION, "\"version\" : 99"));
 
         assertThat(cache.cargar()).isEmpty();
     }

@@ -11,3 +11,7 @@ target/
 .idea/
 *.iml
 .vscode/
+
+# Web
+web/node_modules/
+web/dist/

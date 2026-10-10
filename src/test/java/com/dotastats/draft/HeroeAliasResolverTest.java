@@ -140,6 +140,19 @@ class HeroeAliasResolverTest {
         verify(openDotaClient, times(1)).obtenerCatalogoHeroes();
     }
 
+    @Test
+    void aliasesDeUnHeroeSeExponenOrdenadosSinDuplicarLaTabla() {
+        assertEquals(List.of("sf"), resolver.aliasesDe("Shadow Fiend"));
+        assertEquals(List.of("tide"), resolver.aliasesDe("Tidehunter"));
+        assertEquals(List.of("ls", "naix"), resolver.aliasesDe("Lifestealer"));
+    }
+
+    @Test
+    void aliasesDeUnHeroeSinAbreviaturasEsListaVacia() {
+        assertTrue(resolver.aliasesDe("Juggernaut").isEmpty());
+        assertTrue(resolver.aliasesDe(null).isEmpty());
+    }
+
     private static Map<String, Object> heroe(int id, String nombre) {
         return Map.of("id", id, "localized_name", nombre);
     }

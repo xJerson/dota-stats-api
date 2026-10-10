@@ -117,6 +117,19 @@ public class HeroeAliasResolver {
         return ResultadoAlias.noEncontrado();
     }
 
+    /** Abreviaturas de la tabla integrada que apuntan a este héroe (ordenadas); vacío si no tiene. */
+    public List<String> aliasesDe(String nombreHeroe) {
+        String clave = normalizar(nombreHeroe);
+        if (clave.isEmpty()) {
+            return List.of();
+        }
+        return ALIAS.entrySet().stream()
+                .filter(e -> e.getValue().stream().anyMatch(n -> normalizar(n).equals(clave)))
+                .map(Map.Entry::getKey)
+                .sorted()
+                .toList();
+    }
+
     private ResultadoAlias fuzzy(String clave, Indice idx) {
         int mejor = Integer.MAX_VALUE;
         List<Heroe> mejores = new ArrayList<>();
