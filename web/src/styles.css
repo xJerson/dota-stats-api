@@ -563,20 +563,92 @@ input {
 
 /* Una fila por sugerencia: rango | retrato (16:9, como los de Steam) | nombre + puntaje, barra y motivo. */
 .sugerencia {
-  display: grid;
-  grid-template-columns: 28px 128px minmax(0, 1fr);
-  align-items: center;
-  gap: 0 12px;
-  padding: 10px 0;
   border-top: 1px solid var(--basalt-3);
   animation: asentar 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
   animation-delay: calc(var(--i) * 90ms);
 }
 
 /* La #1 es la recomendación: retrato y nombre algo mayores, sin romper que quepan las tres. */
-.sugerencia:first-child {
+.sugerencia__boton {
+  display: grid;
+  grid-template-columns: 28px 128px minmax(0, 1fr);
+  align-items: center;
+  gap: 0 12px;
+  width: 100%;
+  padding: 10px 8px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms;
+}
+
+.sugerencia:first-child .sugerencia__boton {
   grid-template-columns: 28px 160px minmax(0, 1fr);
-  padding: 12px 0;
+  padding: 12px 8px;
+}
+
+.sugerencia__boton:hover {
+  background: var(--basalt-2);
+}
+
+.sugerencia__boton:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+
+.sugerencia__boton--elegida,
+.sugerencia__boton--elegida:hover {
+  background: var(--basalt-2);
+  border-left-color: var(--gold);
+}
+
+.sugerencia__boton--elegida .sugerencia__rango {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4em;
+  height: 1.4em;
+  background: var(--gold);
+  color: var(--basalt);
+  font-size: var(--titulo-s);
+}
+
+.sugerencia__elegido {
+  margin-right: auto;
+  padding: 1px 8px;
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: var(--texto-s);
+  font-weight: 600;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.slot__tu {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 0 8px;
+  background: var(--gold);
+  color: var(--basalt);
+  font-family: var(--fuente-titulo);
+  font-weight: 800;
+  font-size: var(--texto-s);
+  line-height: 1.5;
+  pointer-events: none;
 }
 
 .sugerencia__rango {
@@ -600,17 +672,21 @@ input {
 }
 
 .sugerencia__texto {
+  display: block;
   min-width: 0;
 }
 
 .sugerencia__cabecera {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: 2px 8px;
 }
 
 .sugerencia__nombre {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-family: var(--fuente-titulo);
   font-weight: 800;
   font-size: var(--titulo-s);
@@ -622,6 +698,7 @@ input {
 }
 
 .barra {
+  display: block;
   height: 3px;
   margin: 4px 0;
   background: var(--basalt-3);
@@ -635,11 +712,13 @@ input {
 
 .sugerencia__puntaje {
   flex: none;
+  margin-left: auto;
   color: var(--bone-dim);
   font-size: var(--texto-s);
 }
 
 .sugerencia__motivo {
+  display: block;
   font-size: var(--texto-s);
   line-height: 1.35;
 }
@@ -727,8 +806,8 @@ input {
   .centro {
     min-height: 0;
   }
-  .sugerencia,
-  .sugerencia:first-child {
+  .sugerencia__boton,
+  .sugerencia:first-child .sugerencia__boton {
     grid-template-columns: 24px 96px minmax(0, 1fr);
   }
 }

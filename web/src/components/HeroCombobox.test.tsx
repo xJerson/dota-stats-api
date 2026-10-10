@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HeroCombobox } from "./HeroCombobox";
 import type { Hero } from "../types";
@@ -95,5 +95,76 @@ describe("HeroCombobox", () => {
     await user.type(input, "shad");
     const marcas = screen.getAllByText("Shad");
     expect(marcas[0].tagName).toBe("MARK");
+  });
+
+  describe("mientras carga el catálogo de héroes", () => {
+    function montarCargando() {
+      const onPick = vi.fn();
+      const vista = render(<HeroCombobox id="x" heroes={[]} cargando label="Héroe" onPick={onPick} />);
+      const rerender = (props: { heroes: Hero[]; cargando: boolean }) =>
+        vista.rerender(<HeroCombobox id="x" label="Héroe" onPick={onPick} {...props} />);
+      return { onPick, rerender, input: screen.getByRole("combobox", { name: "Héroe" }) };
+    }
+
+    it("avisa que está cargando en vez de decir que no encontró el héroe, y el campo se puede usar", async () => {
+      const user = userEvent.setup();
+      const { input } = montarCargando();
+      expect(input).toHaveAttribute("placeholder", "Cargando héroes…");
+      await user.type(input, "sf");
+
+      expect(input).toHaveValue("sf");
+      expect(screen.getByRole("status")).toHaveTextContent("Cargando héroes…");
+      expect(screen.queryByText(/No encontramos ese héroe/)).not.toBeInTheDocument();
+    });
+
+    it("conserva lo escrito y lo filtra en cuanto llega la lista", async () => {
+      const user = userEvent.setup();
+      const { input, rerender } = montarCargando();
+      await user.type(input, "sf");
+
+      rerender({ heroes, cargando: false });
+
+      expect(input).toHaveValue("sf");
+      expect(screen.getByRole("option", { name: /Shadow Fiend/ })).toBeInTheDocument();
+    });
+
+    it("Enter antes de que llegue la lista no se pierde: elige la primera coincidencia al llegar", async () => {
+      const user = userEvent.setup();
+      const { input, onPick, rerender } = montarCargando();
+      await user.type(input, "sf{Enter}");
+      expect(onPick).not.toHaveBeenCalled();
+      expect(input).toHaveValue("sf");
+      expect(screen.getByRole("status")).toHaveTextContent("Cargando héroes…");
+
+      rerender({ heroes, cargando: false });
+
+      expect(onPick).toHaveBeenCalledTimes(1);
+      expect(onPick).toHaveBeenCalledWith(heroes[1]);
+      expect(input).toHaveValue("");
+    });
+
+    it("el Enter pendiente se cancela si se sigue escribiendo, se pulsa Escape o se sale del campo", async () => {
+      const user = userEvent.setup();
+      for (const cancelar of ["{Escape}", "x", "blur"]) {
+        const { input, onPick, rerender } = montarCargando();
+        await user.type(input, "sf{Enter}");
+        if (cancelar === "blur") await user.tab();
+        else await user.type(input, cancelar);
+        rerender({ heroes, cargando: false });
+        expect(onPick).not.toHaveBeenCalled();
+        document.body.innerHTML = "";
+      }
+    });
+
+    it("si al llegar la lista no hay coincidencia, lo dice y no elige nada", async () => {
+      const user = userEvent.setup();
+      const { input, onPick, rerender } = montarCargando();
+      await user.type(input, "zzzzqq{Enter}");
+
+      await act(async () => rerender({ heroes, cargando: false }));
+
+      expect(onPick).not.toHaveBeenCalled();
+      expect(screen.getByText(/No encontramos ese héroe/)).toBeInTheDocument();
+    });
   });
 });

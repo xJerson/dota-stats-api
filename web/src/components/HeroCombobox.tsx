@@ -10,6 +10,8 @@ interface Props {
   heroes: Hero[];
   label: string;
   placeholder?: string;
+  /** El catálogo de héroes todavía no llegó: el campo se puede usar y se filtra apenas llegue. */
+  cargando?: boolean;
   autoFocus?: boolean;
   onPick: (hero: Hero) => void;
   /** Escape o salir del campo sin escribir nada. */
@@ -18,12 +20,23 @@ interface Props {
 
 const MAX_SUGERENCIAS = 6;
 
-export function HeroCombobox({ id, heroes, label, placeholder = "Escribe un héroe", autoFocus, onPick, onCancel }: Props) {
+export function HeroCombobox({
+  id,
+  heroes,
+  label,
+  placeholder = "Escribe un héroe",
+  cargando = false,
+  autoFocus,
+  onPick,
+  onCancel,
+}: Props) {
   const listaId = useId();
   const avisoId = useId();
   const [consulta, setConsulta] = useState("");
   const [enfocado, setEnfocado] = useState(false);
   const [activo, setActivo] = useState(0);
+  // Enter pulsado mientras el catálogo cargaba: se atiende en cuanto llega, en vez de perderse en silencio
+  const [pendiente, setPendiente] = useState(false);
 
   const indice = useMemo(() => crearIndice(heroes), [heroes]);
   const { resultados, aproximado } = useMemo(
@@ -32,6 +45,16 @@ export function HeroCombobox({ id, heroes, label, placeholder = "Escribe un hér
   );
 
   useEffect(() => setActivo(0), [consulta]);
+
+  useEffect(() => {
+    if (cargando || !pendiente) return;
+    setPendiente(false);
+    if (resultados.length > 0) {
+      setConsulta("");
+      onPick(resultados[0].hero);
+    }
+    // onPick cambia en cada render del padre; solo importa el momento en que termina la carga
+  }, [cargando, pendiente]);
 
   const hayConsulta = consulta.trim() !== "";
   const abierto = enfocado && hayConsulta;
@@ -45,8 +68,16 @@ export function HeroCombobox({ id, heroes, label, placeholder = "Escribe un hér
   function alPulsar(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Escape") {
       e.stopPropagation();
+      setPendiente(false);
       if (hayConsulta) setConsulta("");
       else onCancel?.();
+      return;
+    }
+    if (cargando) {
+      if (e.key === "Enter" && hayConsulta) {
+        e.preventDefault();
+        setPendiente(true);
+      }
       return;
     }
     if (!abierto || resultados.length === 0) return;
@@ -75,23 +106,31 @@ export function HeroCombobox({ id, heroes, label, placeholder = "Escribe un hér
         aria-autocomplete="list"
         aria-activedescendant={abierto && resultados.length > 0 ? idOpcion(activo) : undefined}
         aria-describedby={abierto ? avisoId : undefined}
-        placeholder={placeholder}
+        placeholder={cargando ? "Cargando héroes…" : placeholder}
         autoComplete="off"
         autoCapitalize="off"
         spellCheck={false}
         autoFocus={autoFocus}
         value={consulta}
-        onChange={(e) => setConsulta(e.target.value)}
+        onChange={(e) => {
+          setPendiente(false);
+          setConsulta(e.target.value);
+        }}
         onFocus={() => setEnfocado(true)}
         onBlur={() => {
           setEnfocado(false);
+          setPendiente(false);
           if (!hayConsulta) onCancel?.();
         }}
         onKeyDown={alPulsar}
       />
       <div className="combo__panel" hidden={!abierto}>
         <p id={avisoId} className="combo__aviso" role="status">
-          {abierto && resultados.length === 0
+          {abierto && cargando
+            ? pendiente
+              ? "Cargando héroes… Se elegirá la primera coincidencia al terminar."
+              : "Cargando héroes…"
+            : abierto && resultados.length === 0
             ? "No encontramos ese héroe. Prueba con otro nombre o una abreviatura como sf o am."
             : abierto && aproximado
               ? "¿Quisiste decir…?"

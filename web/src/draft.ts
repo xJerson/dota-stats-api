@@ -48,6 +48,7 @@ export function ponerHeroe(slots: Slots, pos: number, hero: Hero | null): Slots 
 }
 
 export const idSlot = (equipo: Equipo, pos: number) => `slot-${equipo}-${pos}`;
+export const ID_SLOT_PROPIO = "slot-propio";
 export const idCambiar = (equipo: Equipo, pos: number) => `cambiar-${equipo}-${pos}`;
 
 /** "Carry (hard carry)" pasa a "Carry" para etiquetas compactas. */
@@ -55,15 +56,18 @@ export function nombreCorto(nombre: string): string {
   return nombre.replace(/\s*\(.*\)\s*/g, "").trim();
 }
 
-/**
- * Pasa el foco sin que el navegador desplace la página por su cuenta y, solo si el elemento queda fuera de la
- * ventana, lo acerca lo mínimo (`block: "nearest"`), para que elegir un héroe no haga saltar la pantalla.
- */
-export function enfocarSinSaltar(el: HTMLElement | null): void {
+/** Acerca el elemento lo mínimo (`block: "nearest"`), y solo si queda fuera de la ventana. */
+export function acercarSiHaceFalta(el: HTMLElement | null): void {
   if (!el) return;
-  el.focus({ preventScroll: true });
   const { top, bottom } = el.getBoundingClientRect();
   if ((top < 0 || bottom > window.innerHeight) && typeof el.scrollIntoView === "function") {
     el.scrollIntoView({ block: "nearest" });
   }
+}
+
+/** Pasa el foco sin que el navegador desplace la página por su cuenta; solo acerca el elemento si queda fuera. */
+export function enfocarSinSaltar(el: HTMLElement | null): void {
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  acercarSiHaceFalta(el);
 }

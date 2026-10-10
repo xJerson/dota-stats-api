@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 
@@ -10,7 +10,10 @@ const heroes = [
 const roles = [1, 2, 3, 4, 5].map((n) => ({ numero: n, nombre: `Rol ${n}` }));
 const sugerencias = {
   miRol: 2,
-  sugerencias: [{ heroId: 3, heroe: "Pudge", puntaje: 0.55, motivo: "Fuerte contra Lion" }],
+  sugerencias: [
+    { heroId: 3, heroe: "Pudge", puntaje: 0.55, motivo: "Fuerte contra Anti-Mage" },
+    { heroId: 2, heroe: "Lion", puntaje: 0.5, motivo: "Control de maná" },
+  ],
   advertencias: [],
 };
 
@@ -54,7 +57,7 @@ describe("App", () => {
     expect(screen.getByAltText("Anti-Mage")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /enemigo, posición 2/ })).toHaveFocus();
 
-    await screen.findByRole("heading", { name: "Pudge" }, { timeout: 2000 });
+    await screen.findByRole("button", { name: /Pudge/ }, { timeout: 2000 });
     const suggest = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0] === "/api/draft/suggest");
     expect(JSON.parse(suggest![1].body)).toEqual({ miRol: 2, enemigos: { "1": "Anti-Mage" }, aliados: {} });
 
@@ -84,6 +87,80 @@ describe("App", () => {
     enfoque.mockRestore();
   });
 
+  it("escribir y pulsar Enter antes de que llegue el catálogo elige el héroe cuando llega", async () => {
+    let entregar: (r: Response) => void = () => undefined;
+    const lento = new Promise<Response>((r) => (entregar = r));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/roles")) return json(roles);
+        if (url.endsWith("/heroes")) return lento;
+        return json(sugerencias);
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    const input = await screen.findByRole("combobox", { name: /enemigo, posición 1/ });
+
+    await user.type(input, "am{Enter}");
+    expect(input).toHaveValue("am");
+    expect(screen.getAllByText(/Cargando héroes…/).length).toBeGreaterThan(0);
+    expect(screen.queryByAltText("Anti-Mage")).not.toBeInTheDocument();
+
+    entregar(new Response(JSON.stringify(heroes), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    expect(await screen.findByAltText("Anti-Mage")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /enemigo, posición 2/ })).toHaveFocus();
+  });
+
+  it("al llegar el catálogo no se pierde lo escrito en otro slot", async () => {
+    let entregar: (r: Response) => void = () => undefined;
+    const lento = new Promise<Response>((r) => (entregar = r));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/roles")) return json(roles);
+        if (url.endsWith("/heroes")) return lento;
+        return json(sugerencias);
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    const input = await screen.findByRole("combobox", { name: /enemigo, posición 3/ });
+    await user.type(input, "pud");
+
+    entregar(new Response(JSON.stringify(heroes), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    expect(await screen.findByRole("option", { name: /Pudge/ })).toBeInTheDocument();
+    expect(input).toHaveValue("pud");
+    expect(input).toHaveFocus();
+  });
+
+  it("el nombre del slot Tú es el de la sugerencia aunque el catálogo use otra grafía", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/roles")) return json(roles);
+        if (url.endsWith("/heroes")) return json(heroes.map((h) => (h.id === 3 ? { ...h, nombre: "Pudge (viejo)" } : h)));
+        return json(sugerencias);
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    const input = await screen.findByRole("combobox", { name: /enemigo, posición 1/ });
+    await waitFor(async () => {
+      await user.clear(input);
+      await user.type(input, "am");
+      expect(screen.getByRole("option", { name: /Anti-Mage/ })).toBeInTheDocument();
+    });
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("button", { name: /Pudge/ }, { timeout: 2000 }));
+
+    const propio = screen.getByText("Tú", { selector: ".slot__tu" }).closest("li") as HTMLElement;
+    expect(within(propio).getByText("Pudge")).toBeInTheDocument();
+    expect(within(propio).queryByText(/viejo/)).not.toBeInTheDocument();
+  });
+
   it("guarda el Steam ID y marca el slot propio como Tú", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -96,5 +173,87 @@ describe("App", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("fail"))));
     render(<App />);
     expect(await screen.findByText(/No se pudo cargar la lista de héroes/)).toBeInTheDocument();
+  });
+
+  describe("elegir una sugerencia", () => {
+    async function conSugerencias() {
+      const user = userEvent.setup();
+      render(<App />);
+      const input = await screen.findByRole("combobox", { name: /enemigo, posición 1/ });
+      await waitFor(async () => {
+        await user.clear(input);
+        await user.type(input, "am");
+        expect(screen.getByRole("option", { name: /Anti-Mage/ })).toBeInTheDocument();
+      });
+      await user.keyboard("{Enter}");
+      const pudge = await screen.findByRole("button", { name: /Pudge/ }, { timeout: 2000 });
+      return { user, pudge };
+    }
+    const slotPropio = () => screen.getByText("Tú").closest("li") as HTMLElement;
+    const cuerpos = () =>
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+        .filter((c) => c[0] === "/api/draft/suggest")
+        .map((c) => JSON.parse(c[1].body));
+
+    it("al hacer clic llena el slot Tú con retrato y nombre, y marca la sugerencia", async () => {
+      const { user, pudge } = await conSugerencias();
+      expect(pudge).toHaveAttribute("aria-pressed", "false");
+      await user.click(pudge);
+
+      expect(within(slotPropio()).getByAltText("Pudge")).toBeInTheDocument();
+      expect(within(slotPropio()).getByText("Tú")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Pudge/, pressed: true })).toHaveTextContent("Elegido");
+      expect(screen.getByRole("status")).toHaveTextContent("Elegiste Pudge para tu slot de Rol 2");
+    });
+
+    it("funciona con Enter y con Espacio", async () => {
+      const { user, pudge } = await conSugerencias();
+      pudge.focus();
+      await user.keyboard("{Enter}");
+      expect(within(slotPropio()).getByAltText("Pudge")).toBeInTheDocument();
+
+      const lion = screen.getByRole("button", { name: /Lion/ });
+      lion.focus();
+      await user.keyboard(" ");
+      expect(within(slotPropio()).getByAltText("Lion")).toBeInTheDocument();
+      expect(within(slotPropio()).queryByAltText("Pudge")).not.toBeInTheDocument();
+    });
+
+    it("no envía el pick propio a /suggest ni reordena la lista", async () => {
+      const { user, pudge } = await conSugerencias();
+      const antes = cuerpos().length;
+      await user.click(screen.getByRole("button", { name: /Lion/ }));
+      await new Promise((r) => setTimeout(r, 500));
+      expect(cuerpos().length).toBe(antes);
+      for (const c of cuerpos()) expect(c.aliados).toEqual({});
+      const botones = screen.getAllByRole("button", { name: /Pudge|Lion/ });
+      expect(botones[0]).toBe(pudge);
+      expect(botones[1]).toHaveTextContent("Elegido");
+    });
+
+    it("cambiar rol descarta el pick y reiniciar también", async () => {
+      const { user } = await conSugerencias();
+      await user.click(screen.getByRole("button", { name: /Pudge/ }));
+      await user.click(screen.getByRole("radio", { name: /3/ }));
+      expect(within(slotPropio()).queryByAltText("Pudge")).not.toBeInTheDocument();
+      expect(slotPropio()).toHaveTextContent("Aquí va uno de los picks sugeridos");
+
+      await user.click(screen.getByRole("button", { name: /Lion/ }));
+      expect(within(slotPropio()).getByAltText("Lion")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Reiniciar draft" }));
+      expect(screen.getByText(/Aquí va uno de los picks sugeridos/)).toBeInTheDocument();
+    });
+
+    it("Quitar y Cambiar funcionan en el slot Tú", async () => {
+      const { user } = await conSugerencias();
+      await user.click(screen.getByRole("button", { name: /Pudge/ }));
+      await user.click(within(slotPropio()).getByRole("button", { name: "Quitar a Pudge" }));
+      expect(slotPropio()).toHaveTextContent("Aquí va uno de los picks sugeridos");
+      expect(screen.getByRole("button", { name: /Pudge/ })).toHaveAttribute("aria-pressed", "false");
+
+      await user.click(screen.getByRole("button", { name: /Pudge/ }));
+      await user.click(within(slotPropio()).getByRole("button", { name: "Cambiar" }));
+      expect(screen.getAllByRole("button", { name: /Pudge|Lion/ }).some((b) => b === document.activeElement)).toBe(true);
+    });
   });
 });

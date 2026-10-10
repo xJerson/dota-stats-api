@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { idCambiar, idSlot } from "../draft";
+import { ID_SLOT_PROPIO, idCambiar, idSlot } from "../draft";
 import type { Equipo, Hero } from "../types";
 import { HeroCombobox } from "./HeroCombobox";
 
@@ -9,42 +9,53 @@ interface Props {
   nombrePosicion: string;
   hero: Hero | undefined;
   disponibles: Hero[];
+  /** El catálogo de héroes todavía se está cargando. */
+  cargando?: boolean;
   /** El slot del propio usuario: lo completan las sugerencias, no se elige. */
   propio?: boolean;
   onPick: (hero: Hero) => void;
   onClear: () => void;
+  /** Solo en el slot propio: vuelve a las sugerencias para elegir otro. */
+  onCambiar?: () => void;
 }
 
-export function HeroSlot({ equipo, posicion, nombrePosicion, hero, disponibles, propio, onPick, onClear }: Props) {
+export function HeroSlot({ equipo, posicion, nombrePosicion, hero, disponibles, cargando, propio, onPick, onClear, onCambiar }: Props) {
   const [editando, setEditando] = useState(false);
   const clase = ["slot", `slot--${equipo}`, hero ? "slot--lleno" : "", propio ? "slot--propio" : ""].join(" ").trim();
   const etiquetaEquipo = equipo === "enemigos" ? "enemigo" : "aliado";
 
   return (
-    <li className={clase}>
+    <li className={clase} id={propio ? ID_SLOT_PROPIO : undefined}>
       <span className="slot__pos" aria-hidden="true">
         {posicion}
       </span>
       <div className="slot__cuerpo">
-        {propio ? (
+        {propio && !hero ? (
           <div className="slot__propio">
             <strong>Tú</strong>
             <span>{nombrePosicion}. Aquí va uno de los picks sugeridos.</span>
           </div>
-        ) : hero && !editando ? (
+        ) : hero && (propio || !editando) ? (
           <div key={hero.id} className="slot__retrato">
             <button
               type="button"
               className="slot__imagen"
               id={idCambiar(equipo, posicion)}
               aria-label={`Cambiar a ${hero.nombre}, posición ${posicion}`}
-              onClick={() => setEditando(true)}
+              onClick={() => (propio ? onCambiar?.() : setEditando(true))}
             >
               {hero.img ? <img src={hero.img} alt={hero.nombre} /> : <span className="slot__sin-imagen" />}
             </button>
+            {propio && (
+              <span className="slot__tu">Tú</span>
+            )}
             <span className="slot__nombre">{hero.nombre}</span>
             <span className="slot__acciones">
-              <button type="button" className="slot__cambiar" onClick={() => setEditando(true)}>
+              <button
+                type="button"
+                className="slot__cambiar"
+                onClick={() => (propio ? onCambiar?.() : setEditando(true))}
+              >
                 Cambiar
               </button>
               <button type="button" className="slot__quitar" aria-label={`Quitar a ${hero.nombre}`} onClick={onClear}>
@@ -60,6 +71,7 @@ export function HeroSlot({ equipo, posicion, nombrePosicion, hero, disponibles, 
             <HeroCombobox
               id={idSlot(equipo, posicion)}
               heroes={disponibles}
+              cargando={cargando}
               label={`Héroe ${etiquetaEquipo}, posición ${posicion}, ${nombrePosicion}`}
               autoFocus={editando}
               onPick={(h) => {

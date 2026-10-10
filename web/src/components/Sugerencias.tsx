@@ -1,10 +1,13 @@
 import type { EstadoSugerencias } from "../useSugerencias";
-import type { Hero } from "../types";
+import type { Hero, Sugerencia } from "../types";
 
 interface Props {
   estado: EstadoSugerencias;
   heroes: Hero[];
   onReintentar: () => void;
+  /** Héroe elegido para el slot propio; solo se marca, la lista no cambia. */
+  elegidoId?: number | null;
+  onElegir: (sugerencia: Sugerencia) => void;
 }
 
 const formato = new Intl.NumberFormat("es", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -17,7 +20,7 @@ export function anchoBarra(puntaje: number, todos: number[]): number {
   return Math.round(35 + (65 * (puntaje - min)) / (max - min));
 }
 
-export function Sugerencias({ estado, heroes, onReintentar }: Props) {
+export function Sugerencias({ estado, heroes, onReintentar, elegidoId, onElegir }: Props) {
   const { fase, datos, error } = estado;
   const sugerencias = datos?.sugerencias ?? [];
   const puntajes = sugerencias.map((s) => s.puntaje);
@@ -59,26 +62,35 @@ export function Sugerencias({ estado, heroes, onReintentar }: Props) {
           <ol className="sugerencias" key={firma} data-cargando={fase === "cargando"}>
             {sugerencias.map((s, i) => {
               const hero = heroes.find((h) => h.id === s.heroId);
+              const elegido = s.heroId === elegidoId;
               return (
                 <li key={s.heroId} className="sugerencia" style={{ ["--i" as string]: i }}>
-                  <span className="sugerencia__rango" aria-label={`Opción ${i + 1}`}>
-                    {i + 1}
-                  </span>
-                  {hero?.img ? (
-                    <img className="sugerencia__img" src={hero.img} alt={s.heroe} />
-                  ) : (
-                    <span className="sugerencia__img sugerencia__img--vacia" />
-                  )}
-                  <div className="sugerencia__texto">
-                    <div className="sugerencia__cabecera">
-                      <h3 className="sugerencia__nombre">{s.heroe}</h3>
-                      <p className="sugerencia__puntaje">Puntaje {formato.format(s.puntaje * 100)}</p>
-                    </div>
-                    <div className="barra" role="img" aria-label={`Puntaje ${formato.format(s.puntaje * 100)}`}>
-                      <span className="barra__relleno" style={{ width: `${anchoBarra(s.puntaje, puntajes)}%` }} />
-                    </div>
-                    <p className="sugerencia__motivo">{s.motivo}</p>
-                  </div>
+                  <button
+                    type="button"
+                    className={elegido ? "sugerencia__boton sugerencia__boton--elegida" : "sugerencia__boton"}
+                    aria-pressed={elegido}
+                    onClick={() => onElegir(s)}
+                  >
+                    <span className="sugerencia__rango" aria-label={`Opción ${i + 1}`}>
+                      {i + 1}
+                    </span>
+                    {hero?.img ? (
+                      <img className="sugerencia__img" src={hero.img} alt="" />
+                    ) : (
+                      <span className="sugerencia__img sugerencia__img--vacia" />
+                    )}
+                    <span className="sugerencia__texto">
+                      <span className="sugerencia__cabecera">
+                        <span className="sugerencia__nombre">{s.heroe}</span>
+                        {elegido && <span className="sugerencia__elegido">Elegido</span>}
+                        <span className="sugerencia__puntaje">Puntaje {formato.format(s.puntaje * 100)}</span>
+                      </span>
+                      <span className="barra" aria-hidden="true">
+                        <span className="barra__relleno" style={{ width: `${anchoBarra(s.puntaje, puntajes)}%` }} />
+                      </span>
+                      <span className="sugerencia__motivo">{s.motivo}</span>
+                    </span>
+                  </button>
                 </li>
               );
             })}
