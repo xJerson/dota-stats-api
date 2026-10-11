@@ -12,11 +12,21 @@ export interface Rol {
   nombre: string;
 }
 
+export type Confianza = "alta" | "media" | "baja" | null;
+
 export interface Sugerencia {
   heroId: number;
   heroe: string;
   puntaje: number;
   motivo: string;
+  confianza: Confianza;
+}
+
+/** Una categoría de sugerencias (por meta, por jugabilidad, etc.), en el orden en que debe mostrarse. */
+export interface Fila {
+  id: string;
+  titulo: string;
+  sugerencias: Sugerencia[];
 }
 
 export interface DraftRequest {
@@ -28,7 +38,7 @@ export interface DraftRequest {
 
 export interface DraftResponse {
   miRol: number;
-  sugerencias: Sugerencia[];
+  filas: Fila[];
   advertencias: string[];
 }
 

@@ -559,6 +559,24 @@ input {
   line-height: 1.4;
 }
 
+/* Una fila por categoría (meta, jugabilidad, ...); cuántas haya lo decide la respuesta, no el CSS. */
+.fila-sugerencias + .fila-sugerencias {
+  margin-top: 20px;
+}
+
+.fila-sugerencias__titulo {
+  font-family: var(--fuente-titulo);
+  font-weight: 700;
+  font-size: var(--titulo-s);
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+
+.vacio--fila {
+  padding: 8px 0 4px;
+  font-size: var(--texto-m);
+}
+
 .sugerencias {
   display: flex;
   flex-direction: column;
@@ -631,6 +649,21 @@ input {
   color: var(--gold);
   font-size: var(--texto-s);
   font-weight: 600;
+}
+
+/* Etiqueta de confianza: siempre con la palabra escrita, nunca solo un color. "alta" se destaca un poco;
+   "media"/"baja" se quedan discretas para no parecer un counter seguro. */
+.sugerencia__confianza {
+  padding: 1px 8px;
+  border: 1px solid var(--bone-dim);
+  color: var(--bone-dim);
+  font-size: var(--texto-s);
+  text-transform: lowercase;
+}
+
+.sugerencia__confianza--alta {
+  border-color: var(--gold);
+  color: var(--gold);
 }
 
 .sr-only {

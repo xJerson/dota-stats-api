@@ -10,9 +10,15 @@ const heroes = [
 const roles = [1, 2, 3, 4, 5].map((n) => ({ numero: n, nombre: `Rol ${n}` }));
 const sugerencias = {
   miRol: 2,
-  sugerencias: [
-    { heroId: 3, heroe: "Pudge", puntaje: 0.55, motivo: "Fuerte contra Anti-Mage" },
-    { heroId: 2, heroe: "Lion", puntaje: 0.5, motivo: "Control de maná" },
+  filas: [
+    {
+      id: "meta",
+      titulo: "Sugerencias por meta",
+      sugerencias: [
+        { heroId: 3, heroe: "Pudge", puntaje: 0.55, motivo: "Fuerte contra Anti-Mage", confianza: null },
+        { heroId: 2, heroe: "Lion", puntaje: 0.5, motivo: "Control de maná", confianza: null },
+      ],
+    },
   ],
   advertencias: [],
 };
