@@ -10,16 +10,20 @@ import java.util.Map;
 /**
  * Configuración del motor de sugerencias (prefijo {@code dotastats.sugerencias}).
  *
- * @param pesoMeta          peso del winrate de meta (Wilson) en el puntaje
+ * @param pesoMeta          peso del meta por posición (Wilson global, ajustado por línea si hay datos) en el puntaje
  * @param pesoContra        peso del componente counter (promedio Wilson contra los enemigos elegidos)
- * @param minPartidasDuelo  partidas mínimas de un duelo para que el motivo lo cite como "fuerte contra" un enemigo
- * @param fuerzaPrior       partidas "virtuales" con el winrate de meta del candidato que se suman a cada duelo
- *                          (contracción hacia el meta): con pocos datos el duelo vale casi lo mismo que el meta
+ * @param partidasMinimasDuelo partidas mínimas de un duelo para que el motivo lo cite como tendencia (ver
+ *                          {@code ventajaMinimaDuelo}); por debajo de este umbral el duelo se usa igual en el
+ *                          puntaje (contraído hacia el meta) pero el motivo no lo nombra
+ * @param fuerzaPrior       partidas "virtuales" con el winrate del meta por posición del candidato que se suman a
+ *                          cada duelo (contracción hacia el meta): con pocos datos el duelo vale casi lo mismo que
+ *                          el meta, no una ventaja
  * @param z                cuantil de Wilson (1.96 = 95%)
  * @param pesoPersonal      peso (0..1) del componente personal cuando la petición trae steamId; meta y counter se
  *                          reescalan proporcionalmente por (1 - pesoPersonal) para que los pesos sigan sumando 1
- * @param fuerzaPriorPersonal partidas "virtuales" con el winrate de meta del candidato que se suman al historial
- *                          del jugador con ese héroe: sin partidas el componente personal vale exactamente el meta
+ * @param fuerzaPriorPersonal partidas "virtuales" con el winrate del meta por posición del candidato que se suman al
+ *                          historial del jugador con ese héroe: sin partidas el componente personal vale exactamente
+ *                          ese meta
  * @param minPartidasPersonal partidas mínimas del jugador con el héroe para citar su winrate en el motivo
  * @param umbralLinea       posiciones 1-3: participación mínima (0..1) del héroe en la línea de esa posición, sobre
  *                          sus partidas totales en las líneas 1-3 (segura, central, ofensiva). La posición 1 exige
@@ -29,6 +33,13 @@ import java.util.Map;
  *                          enemigos 3 y 4; posición 2 -> enemigo 2; posiciones 3 y 4 -> enemigos 1 y 5
  * @param pesoOtrosEnemigos peso (>= 0) en el counter de los demás enemigos; el counter es el promedio ponderado.
  *                          No pueden ser cero a la vez
+ * @param fuerzaPriorLinea  partidas "virtuales" con el winrate de meta global (Wilson) que se suman a las partidas
+ *                          del héroe en la línea de mi posición, para calcular el meta por posición:
+ *                          {@code metaPosicion = (victoriasLinea + fuerzaPriorLinea*metaGlobal) / (partidasLinea + fuerzaPriorLinea)}.
+ *                          Sin datos de línea (o en las posiciones 4-5, que no tienen línea mapeada) vale exactamente
+ *                          el meta global. Debe ser >= 0
+ * @param ventajaMinimaDuelo diferencia mínima (en winrate, 0..1) entre la estimación contraída de un duelo y el meta
+ *                          por posición para que el motivo lo cite como tendencia (positiva o negativa)
  * @param roles             posición (1-5) -> roles de OpenDota aceptados; ver {@link #ROLES_POR_DEFECTO}. Es la regla
  *                          de las posiciones sin lista en {@code heroesPosicion} (normalmente 4-5 si no hay lista) y, en las
  *                          1-3, solo si no hay datos de línea
@@ -42,7 +53,7 @@ import java.util.Map;
 @ConfigurationProperties("dotastats.sugerencias")
 public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
                                     @DefaultValue("0.6") double pesoContra,
-                                    @DefaultValue("10") int minPartidasDuelo,
+                                    @DefaultValue("50") int partidasMinimasDuelo,
                                     @DefaultValue("100") double fuerzaPrior,
                                     @DefaultValue("1.96") double z,
                                     @DefaultValue("0.25") double pesoPersonal,
@@ -52,6 +63,8 @@ public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
                                     @DefaultValue("30") long minPartidasLinea,
                                     @DefaultValue("1.0") double pesoOponenteDirecto,
                                     @DefaultValue("0.5") double pesoOtrosEnemigos,
+                                    @DefaultValue("200") double fuerzaPriorLinea,
+                                    @DefaultValue("0.03") double ventajaMinimaDuelo,
                                     Map<Integer, List<String>> roles,
                                     Map<Integer, List<String>> excluirPosicion,
                                     Map<Integer, List<String>> heroesPosicion) {
@@ -88,6 +101,10 @@ public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
             throw new IllegalArgumentException(
                     "dotastats.sugerencias: al menos uno de peso-oponente-directo y peso-otros-enemigos debe ser > 0");
         }
+        if (!(fuerzaPriorLinea >= 0)) {
+            throw new IllegalArgumentException(
+                    "dotastats.sugerencias.fuerza-prior-linea debe ser un número >= 0 (valor: " + fuerzaPriorLinea + ")");
+        }
         // Lo configurado por posición pisa el valor por defecto; las posiciones sin configurar lo conservan.
         Map<Integer, List<String>> completo = new HashMap<>(ROLES_POR_DEFECTO);
         if (roles != null) {
@@ -110,6 +127,6 @@ public record SugerenciasProperties(@DefaultValue("0.4") double pesoMeta,
     }
 
     public static SugerenciasProperties porDefecto() {
-        return new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.30, 30, 1.0, 0.5, null, null, null);
+        return new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.25, 20, 5, 0.30, 30, 1.0, 0.5, 200, 0.03, null, null, null);
     }
 }

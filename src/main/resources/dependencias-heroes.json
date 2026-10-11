@@ -1,0 +1,245 @@
+{
+  "dependencias": [
+    {
+      "heroe": "Storm Spirit",
+      "dependencias": [
+        {
+          "mecanismo": "ESCAPE",
+          "habilidad": "storm_spirit_ball_lightning",
+          "descripcion": "Se escapa y se reposiciona con Ball Lightning; si no puede lanzarla queda expuesto en la línea."
+        },
+        {
+          "mecanismo": "MANA",
+          "habilidad": "storm_spirit_ball_lightning",
+          "descripcion": "Ball Lightning cuesta maná al lanzarla y por cada unidad de distancia; sin maná pierde movilidad y daño."
+        }
+      ]
+    },
+    {
+      "heroe": "Riki",
+      "dependencias": [
+        {
+          "mecanismo": "INVISIBILIDAD",
+          "habilidad": "riki_backstab",
+          "descripcion": "Cloak and Dagger lo vuelve invisible unos segundos después de atacar; si lo ves deja de poder acechar."
+        }
+      ]
+    },
+    {
+      "heroe": "Phantom Lancer",
+      "dependencias": [
+        {
+          "mecanismo": "ILUSIONES",
+          "habilidad": "phantom_lancer_juxtapose",
+          "descripcion": "Su daño y su presión salen de las ilusiones que crea con Juxtapose; las ilusiones reciben mucho más daño del normal."
+        },
+        {
+          "mecanismo": "ESCAPE",
+          "habilidad": "phantom_lancer_doppelwalk",
+          "descripcion": "Se reposiciona y confunde con Doppelganger; sin poder lanzarla pierde su forma de salir de una pelea."
+        }
+      ]
+    },
+    {
+      "heroe": "Huskar",
+      "dependencias": [
+        {
+          "mecanismo": "PASIVAS",
+          "habilidad": "huskar_berserkers_blood",
+          "descripcion": "Berserker's Blood es pasiva: cuanta menos vida tiene más velocidad de ataque, regeneración y resistencia gana."
+        }
+      ]
+    },
+    {
+      "heroe": "Viper",
+      "dependencias": [
+        {
+          "mecanismo": "ACOSO_RANGO",
+          "habilidad": "viper_poison_attack",
+          "descripcion": "Acosa en línea con Poison Attack desde 575 de alcance; quien tenga más alcance le quita esa ventaja."
+        }
+      ]
+    }
+  ],
+  "herramientas": [
+    {
+      "heroe": "Lion",
+      "herramientas": [
+        {"habilidad": "lion_voodoo", "efecto": "HEX", "claveDuracion": "duration", "esUlti": false, "confianza": "alta"},
+        {"habilidad": "lion_mana_drain", "efecto": "QUEMA_MANA", "claveEvidencia": "mana_per_second", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Shadow Shaman",
+      "herramientas": [
+        {"habilidad": "shadow_shaman_voodoo", "efecto": "HEX", "claveDuracion": "duration", "esUlti": false, "confianza": "alta"}
+      ]
+    },
+    {
+      "heroe": "Drow Ranger",
+      "herramientas": [
+        {"habilidad": "drow_ranger_wave_of_silence", "efecto": "SILENCIO", "claveDuracion": "silence_duration", "esUlti": false, "confianza": "media"},
+        {"habilidad": "drow_ranger_wave_of_silence", "efecto": "REVELADO", "claveEvidencia": "gust_reveals_invis", "esUlti": false, "confianza": "alta"}
+      ]
+    },
+    {
+      "heroe": "Puck",
+      "herramientas": [
+        {"habilidad": "puck_waning_rift", "efecto": "SILENCIO", "claveDuracion": "silence_duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Skywrath Mage",
+      "herramientas": [
+        {"habilidad": "skywrath_mage_ancient_seal", "efecto": "SILENCIO", "claveDuracion": "seal_duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Death Prophet",
+      "herramientas": [
+        {"habilidad": "death_prophet_silence", "efecto": "SILENCIO", "claveDuracion": "abilityduration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Silencer",
+      "herramientas": [
+        {"habilidad": "silencer_global_silence", "efecto": "SILENCIO", "claveDuracion": "abilityduration", "esUlti": true, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Bloodseeker",
+      "herramientas": [
+        {"habilidad": "bloodseeker_blood_bath", "efecto": "SILENCIO", "claveDuracion": "silence_duration", "claveRetraso": "delay", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Muerta",
+      "herramientas": [
+        {"habilidad": "muerta_the_calling", "efecto": "SILENCIO", "claveDuracion": "silence_duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Dragon Knight",
+      "herramientas": [
+        {"habilidad": "dragon_knight_dragon_tail", "efecto": "STUN", "claveDuracion": "stun_duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Lina",
+      "herramientas": [
+        {"habilidad": "lina_light_strike_array", "efecto": "STUN", "claveDuracion": "light_strike_array_stun_duration", "claveRetraso": "light_strike_array_delay_time", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Windranger",
+      "herramientas": [
+        {"habilidad": "windrunner_shackleshot", "efecto": "STUN", "claveDuracion": "stun_duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Sven",
+      "herramientas": [
+        {"habilidad": "sven_storm_bolt", "efecto": "STUN", "claveDuracion": "bolt_stun_duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Vengeful Spirit",
+      "herramientas": [
+        {"habilidad": "vengefulspirit_magic_missile", "efecto": "STUN", "claveDuracion": "magic_missile_stun", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Ogre Magi",
+      "herramientas": [
+        {"habilidad": "ogre_magi_fireblast", "efecto": "STUN", "claveDuracion": "stun_duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Centaur Warrunner",
+      "herramientas": [
+        {"habilidad": "centaur_hoof_stomp", "efecto": "STUN", "claveDuracion": "stun_duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Naga Siren",
+      "herramientas": [
+        {"habilidad": "naga_siren_ensnare", "efecto": "ROOT", "claveDuracion": "duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Crystal Maiden",
+      "herramientas": [
+        {"habilidad": "crystal_maiden_frostbite", "efecto": "ROOT", "claveDuracion": "duration", "esUlti": false, "confianza": "media"},
+        {"habilidad": "crystal_maiden_crystal_nova", "efecto": "AREA", "claveEvidencia": "radius", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Treant Protector",
+      "herramientas": [
+        {"habilidad": "treant_overgrowth", "efecto": "ROOT", "claveDuracion": "duration", "esUlti": true, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Zeus",
+      "herramientas": [
+        {"habilidad": "zuus_lightning_bolt", "efecto": "REVELADO", "claveEvidencia": "true_sight_radius", "esUlti": false, "confianza": "alta"},
+        {"habilidad": "zuus_arc_lightning", "efecto": "AREA", "claveEvidencia": "radius", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Slardar",
+      "herramientas": [
+        {"habilidad": "slardar_amplify_damage", "efecto": "REVELADO", "claveDuracion": "duration", "esUlti": true, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Bounty Hunter",
+      "herramientas": [
+        {"habilidad": "bounty_hunter_track", "efecto": "REVELADO", "claveDuracion": "duration", "esUlti": true, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Leshrac",
+      "herramientas": [
+        {"habilidad": "leshrac_diabolic_edict", "efecto": "AREA", "claveEvidencia": "radius", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Anti-Mage",
+      "herramientas": [
+        {"habilidad": "antimage_mana_break", "efecto": "QUEMA_MANA", "claveEvidencia": "mana_per_hit", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Nyx Assassin",
+      "herramientas": [
+        {"habilidad": "nyx_assassin_jolt", "efecto": "QUEMA_MANA", "claveEvidencia": "mana_burn_pct", "esUlti": false, "confianza": "media"},
+        {"habilidad": "nyx_assassin_vendetta", "efecto": "BREAK", "claveDuracion": "break_duration", "esUlti": true, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Lich",
+      "herramientas": [
+        {"habilidad": "lich_sinister_gaze", "efecto": "QUEMA_MANA", "claveEvidencia": "mana_drain", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Viper",
+      "herramientas": [
+        {"habilidad": "viper_viper_strike", "efecto": "BREAK", "claveDuracion": "duration", "claveEvidencia": "does_break", "esUlti": true, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Techies",
+      "herramientas": [
+        {"habilidad": "techies_reactive_tazer", "efecto": "DESARME", "claveDuracion": "disarm_duration", "esUlti": false, "confianza": "media"}
+      ]
+    },
+    {
+      "heroe": "Invoker",
+      "herramientas": [
+        {"habilidad": "invoker_deafening_blast", "efecto": "DESARME", "claveDuracion": "disarm_duration", "esUlti": false, "confianza": "baja"}
+      ]
+    }
+  ]
+}

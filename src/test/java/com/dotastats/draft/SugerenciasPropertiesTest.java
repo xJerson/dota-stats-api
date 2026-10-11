@@ -12,7 +12,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SugerenciasPropertiesTest {
 
     private static SugerenciasProperties con(double directo, double otros) {
-        return new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.30, 30, directo, otros, null, null, null);
+        return new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.25, 20, 5, 0.30, 30, directo, otros, 200, 0.03, null, null, null);
+    }
+
+    private static SugerenciasProperties conFuerzaPriorLinea(double fuerzaPriorLinea) {
+        return new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.25, 20, 5, 0.30, 30, 1.0, 0.5, fuerzaPriorLinea, 0.03, null, null, null);
     }
 
     @Test
@@ -82,5 +86,21 @@ class SugerenciasPropertiesTest {
     @Test
     void rechazaPesosNoNumericos() {
         assertThatThrownBy(() -> con(Double.NaN, 0.5)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void laFuerzaDelPriorDeLineaPorDefectoEsDoscientos() {
+        assertThat(SugerenciasProperties.porDefecto().fuerzaPriorLinea()).isEqualTo(200);
+    }
+
+    @Test
+    void rechazaFuerzaPriorDeLineaNegativa() {
+        assertThatThrownBy(() -> conFuerzaPriorLinea(-1.0)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("fuerza-prior-linea");
+    }
+
+    @Test
+    void aceptaFuerzaPriorDeLineaCero() {
+        assertThat(conFuerzaPriorLinea(0.0).fuerzaPriorLinea()).isZero();
     }
 }

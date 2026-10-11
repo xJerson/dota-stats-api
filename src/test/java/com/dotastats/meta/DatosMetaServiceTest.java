@@ -31,6 +31,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -80,6 +82,7 @@ class DatosMetaServiceTest {
         Map<String, Object> m = new HashMap<>();
         m.put("id", id);
         m.put("localized_name", nombre);
+        m.put("name", "npc_dota_hero_" + nombre.toLowerCase(java.util.Locale.ROOT));
         m.put("roles", roles);
         for (int i = 0; i < bracketsYValores.length; i += 3) {
             m.put(bracketsYValores[i] + "_pick", bracketsYValores[i + 1]);
@@ -119,6 +122,15 @@ class DatosMetaServiceTest {
         assertThat(alfa.victorias()).isEqualTo(780);
         assertThat(d.parche()).isEqualTo(new Parche(60, "7.41"));
         assertThat(d.cargadoEn()).isEqualTo(AHORA);
+    }
+
+    @Test
+    void elHeroeGuardaSuNombreInternoDeHeroStats() {
+        DatosMetaService s = servicio(Runnable::run);
+
+        s.refrescar();
+
+        assertThat(s.datosParaSugerir().heroes().get(1).nombreInterno()).isEqualTo("npc_dota_hero_alfa");
     }
 
     @Test
@@ -648,14 +660,15 @@ class DatosMetaServiceTest {
         assertThat(new CacheDisco(archivoCache).cargar().orElseThrow().matchups()).isEmpty();
     }
 
-    private static Map<String, Object> fila(int heroId, int lane, int tiempo, String partidas) {
-        return Map.of("hero_id", heroId, "lane_role", lane, "time", tiempo, "games", partidas, "wins", "1");
+    private static Map<String, Object> fila(int heroId, int lane, int tiempo, String partidas, String victorias) {
+        return Map.of("hero_id", heroId, "lane_role", lane, "time", tiempo, "games", partidas, "wins", victorias);
     }
 
     private void lineasDisponibles() {
-        when(client.obtenerLaneRoles(1)).thenReturn(List.of(fila(1, 1, 900, "5"), fila(1, 1, 1800, "20"), fila(2, 1, 900, "7")));
-        when(client.obtenerLaneRoles(2)).thenReturn(List.of(fila(1, 2, 900, "3")));
-        when(client.obtenerLaneRoles(3)).thenReturn(List.of(fila(3, 3, 900, "40")));
+        when(client.obtenerLaneRoles(1)).thenReturn(List.of(
+                fila(1, 1, 900, "5", "2"), fila(1, 1, 1800, "20", "11"), fila(2, 1, 900, "7", "3")));
+        when(client.obtenerLaneRoles(2)).thenReturn(List.of(fila(1, 2, 900, "3", "1")));
+        when(client.obtenerLaneRoles(3)).thenReturn(List.of(fila(3, 3, 900, "40", "22")));
     }
 
     @Test
@@ -665,10 +678,15 @@ class DatosMetaServiceTest {
 
         s.refrescar();
 
-        Map<Integer, Map<Integer, Long>> lineas = s.datosParaSugerir().partidasPorLinea();
-        assertThat(lineas.get(1)).containsOnly(Map.entry(1, 25L), Map.entry(2, 7L));
-        assertThat(lineas.get(2)).containsOnly(Map.entry(1, 3L));
-        assertThat(lineas.get(3)).containsOnly(Map.entry(3, 40L));
+        DatosMeta d = s.datosParaSugerir();
+        Map<Integer, Map<Integer, Long>> partidas = d.partidasPorLinea();
+        assertThat(partidas.get(1)).containsOnly(Map.entry(1, 25L), Map.entry(2, 7L));
+        assertThat(partidas.get(2)).containsOnly(Map.entry(1, 3L));
+        assertThat(partidas.get(3)).containsOnly(Map.entry(3, 40L));
+        Map<Integer, Map<Integer, Long>> victorias = d.victoriasPorLinea();
+        assertThat(victorias.get(1)).containsOnly(Map.entry(1, 13L), Map.entry(2, 3L));
+        assertThat(victorias.get(2)).containsOnly(Map.entry(1, 1L));
+        assertThat(victorias.get(3)).containsOnly(Map.entry(3, 22L));
         verify(client, never()).obtenerLaneRoles(4);
     }
 
@@ -683,6 +701,7 @@ class DatosMetaServiceTest {
         DatosMeta d = s.datosParaSugerir();
         assertThat(d.heroes()).hasSize(3);
         assertThat(d.partidasPorLinea()).isEmpty();
+        assertThat(d.victoriasPorLinea()).isEmpty();
     }
 
     @Test
@@ -694,6 +713,7 @@ class DatosMetaServiceTest {
         s.refrescar();
 
         assertThat(s.datosParaSugerir().partidasPorLinea()).isEmpty();
+        assertThat(s.datosParaSugerir().victoriasPorLinea()).isEmpty();
     }
 
     @Test
@@ -707,6 +727,190 @@ class DatosMetaServiceTest {
         segundo.cargarAlIniciar();
 
         assertThat(segundo.datosParaSugerir().partidasPorLinea().get(1)).containsEntry(1, 25L);
+        assertThat(segundo.datosParaSugerir().victoriasPorLinea().get(1)).containsEntry(1, 13L);
         verify(otroClient, never()).obtenerLaneRoles(anyInt());
+    }
+
+    // --- /constants/abilities y /constants/hero_abilities (CatalogoHabilidades) ---
+
+    private void habilidadesDisponibles() {
+        // doReturn (no when): alguna llamada ya pudo dejar el mock devolviendo una excepción, y when(mock.metodo())
+        // invoca el método al construir el stub, lo que relanzaría esa excepción antes de poder reemplazarlo.
+        doReturn(Map.of("lion_voodoo", Map.of("dname", "Hex"))).when(client).obtenerAbilidades();
+        doReturn(Map.of("npc_dota_hero_alfa", Map.of("abilities", List.of("lion_voodoo"))))
+                .when(client).obtenerHabilidadesPorHeroe();
+    }
+
+    @Test
+    void datosHabilidadAntesDeCargarLanzaDatosNoCargados() {
+        DatosMetaService s = servicio(r -> { });
+
+        assertThatThrownBy(s::datosHabilidad).isInstanceOf(DatosNoCargadosException.class);
+    }
+
+    @Test
+    void laCargaBaseNoPideAbilidadesNiHabilidadesPorHeroe() {
+        DatosMetaService s = servicio(Runnable::run);
+
+        s.refrescar();
+
+        verify(client, never()).obtenerAbilidades();
+        verify(client, never()).obtenerHabilidadesPorHeroe();
+    }
+
+    @Test
+    void datosHabilidadSePidenUnaSolaVezYSeCacheanEnMemoria() {
+        habilidadesDisponibles();
+        DatosMetaService s = servicio(Runnable::run);
+        s.refrescar();
+
+        DatosHabilidad primera = s.datosHabilidad();
+        DatosHabilidad segunda = s.datosHabilidad();
+
+        assertThat(primera.abilidades()).containsKey("lion_voodoo");
+        assertThat(primera.habilidadesPorHeroe()).containsKey("npc_dota_hero_alfa");
+        assertThat(segunda).isEqualTo(primera);
+        verify(client, times(1)).obtenerAbilidades();
+        verify(client, times(1)).obtenerHabilidadesPorHeroe();
+    }
+
+    @Test
+    void siFallaObtenerAbilidadesNoSeCacheaYSeReintentaEnLaSiguienteLlamada() {
+        DatosMetaService s = servicio(Runnable::run);
+        s.refrescar();
+        when(client.obtenerAbilidades()).thenThrow(new OpenDotaNoDisponibleException("caído"));
+
+        assertThatThrownBy(s::datosHabilidad).isInstanceOf(OpenDotaNoDisponibleException.class);
+
+        habilidadesDisponibles();
+        DatosHabilidad ok = s.datosHabilidad();
+        assertThat(ok.abilidades()).isNotEmpty();
+    }
+
+    @Test
+    void datosHabilidadSePersistenEnDiscoYAlIniciarSeReutilizanSinTocarLaRed() {
+        habilidadesDisponibles();
+        DatosMetaService primero = servicio(Runnable::run);
+        primero.refrescar();
+        primero.datosHabilidad();
+
+        OpenDotaClient otroClient = mock(OpenDotaClient.class);
+        DatosMetaService segundo = new DatosMetaService(otroClient, props(List.of(6, 7), 30, 0, true),
+                new CacheDisco(archivoCache), Runnable::run, RELOJ);
+        segundo.cargarAlIniciar();
+
+        DatosHabilidad reutilizado = segundo.datosHabilidad();
+        assertThat(reutilizado.abilidades()).containsKey("lion_voodoo");
+        verify(otroClient, never()).obtenerAbilidades();
+        verify(otroClient, never()).obtenerHabilidadesPorHeroe();
+    }
+
+    @Test
+    void conParcheNuevoDatosHabilidadSeDescartaYSeVuelveAPedir() {
+        habilidadesDisponibles();
+        DatosMetaService s = servicio(Runnable::run);
+        s.refrescar();
+        s.datosHabilidad();
+        when(client.obtenerParche()).thenReturn(new Parche(61, "7.42"));
+
+        s.datosParaSugerir(); // detecta el parche nuevo y recarga la base
+        s.datosHabilidad();
+
+        verify(client, times(2)).obtenerAbilidades();
+        verify(client, times(2)).obtenerHabilidadesPorHeroe();
+    }
+
+    // --- /constants/heroes (alcance de ataque para la herramienta RANGO_MAYOR) ---
+
+    private void heroesConstantesDisponibles(OpenDotaClient cliente) {
+        doReturn(Map.of(
+                "17", Map.of("id", 17, "localized_name", "Storm Spirit", "attack_range", 480),
+                "47", Map.of("id", 47, "localized_name", "Viper", "attack_range", 575)))
+                .when(cliente).obtenerHeroesConstantes();
+    }
+
+    @Test
+    void datosHabilidadIncluyeElAlcanceDeAtaqueDeCadaHeroeYLoPideUnaSolaVez() {
+        habilidadesDisponibles();
+        heroesConstantesDisponibles(client);
+        DatosMetaService s = servicio(Runnable::run);
+        s.refrescar();
+
+        DatosHabilidad primera = s.datosHabilidad();
+        DatosHabilidad segunda = s.datosHabilidad();
+
+        assertThat(primera.rangoAtaquePorHeroe()).containsEntry(17, 480).containsEntry(47, 575);
+        assertThat(segunda).isEqualTo(primera);
+        verify(client, times(1)).obtenerHeroesConstantes();
+    }
+
+    @Test
+    void siFallaObtenerLosHeroesConstantesLaFilaSigueSinAlcanceYNoSeCachea() {
+        habilidadesDisponibles();
+        doThrow(new OpenDotaNoDisponibleException("caído")).when(client).obtenerHeroesConstantes();
+        DatosMetaService s = servicio(Runnable::run);
+        s.refrescar();
+
+        DatosHabilidad sin = s.datosHabilidad();
+
+        assertThat(sin.abilidades()).containsKey("lion_voodoo");
+        assertThat(sin.rangoAtaquePorHeroe()).isEmpty();
+
+        heroesConstantesDisponibles(client);
+        assertThat(s.datosHabilidad().rangoAtaquePorHeroe()).containsEntry(47, 575);
+    }
+
+    @Test
+    void elAlcanceSePersisteEnDiscoYAlIniciarSeReutilizaSinTocarLaRed() {
+        habilidadesDisponibles();
+        heroesConstantesDisponibles(client);
+        DatosMetaService primero = servicio(Runnable::run);
+        primero.refrescar();
+        primero.datosHabilidad();
+
+        OpenDotaClient otroClient = mock(OpenDotaClient.class);
+        DatosMetaService segundo = new DatosMetaService(otroClient, props(List.of(6, 7), 30, 0, true),
+                new CacheDisco(archivoCache), Runnable::run, RELOJ);
+        segundo.cargarAlIniciar();
+
+        assertThat(segundo.datosHabilidad().rangoAtaquePorHeroe()).containsEntry(47, 575);
+        verify(otroClient, never()).obtenerHeroesConstantes();
+    }
+
+    @Test
+    void unaCacheViejaSinAlcancePideSoloLosHeroesConstantesYNoRepiteLasHabilidades() {
+        habilidadesDisponibles();
+        DatosMetaService primero = servicio(Runnable::run);
+        primero.refrescar();
+        primero.datosHabilidad(); // el mock devuelve {}: queda en disco sin alcance
+
+        OpenDotaClient otroClient = mock(OpenDotaClient.class);
+        heroesConstantesDisponibles(otroClient);
+        DatosMetaService segundo = new DatosMetaService(otroClient, props(List.of(6, 7), 30, 0, true),
+                new CacheDisco(archivoCache), Runnable::run, RELOJ);
+        segundo.cargarAlIniciar();
+
+        DatosHabilidad datos = segundo.datosHabilidad();
+
+        assertThat(datos.abilidades()).containsKey("lion_voodoo");
+        assertThat(datos.rangoAtaquePorHeroe()).containsEntry(47, 575);
+        verify(otroClient, never()).obtenerAbilidades();
+        verify(otroClient, never()).obtenerHabilidadesPorHeroe();
+        verify(otroClient, times(1)).obtenerHeroesConstantes();
+    }
+
+    @Test
+    void conParcheNuevoElAlcanceTambienSeDescartaYSeVuelveAPedir() {
+        habilidadesDisponibles();
+        heroesConstantesDisponibles(client);
+        DatosMetaService s = servicio(Runnable::run);
+        s.refrescar();
+        s.datosHabilidad();
+        when(client.obtenerParche()).thenReturn(new Parche(61, "7.42"));
+
+        s.datosParaSugerir();
+        s.datosHabilidad();
+
+        verify(client, times(2)).obtenerHeroesConstantes();
     }
 }

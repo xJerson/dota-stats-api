@@ -1,0 +1,277 @@
+[
+  {
+    "id": "r1",
+    "enemigos": [
+      "Storm Spirit"
+    ],
+    "rasgo": "escape por habilidad",
+    "counter": "Lion",
+    "habilidad": "lion_voodoo",
+    "habilidadNombre": "Hex",
+    "anula": [
+      "storm_spirit_ball_lightning"
+    ],
+    "anulaEsUlti": true,
+    "esUlti": false,
+    "confianza": "alta",
+    "motivo": "Hex lo inmoviliza aunque use Ball Lightning."
+  },
+  {
+    "id": "r2",
+    "enemigos": [
+      "Queen of Pain"
+    ],
+    "rasgo": "escape por habilidad",
+    "counter": "Shadow Shaman",
+    "habilidad": "shadow_shaman_voodoo",
+    "habilidadNombre": "Hex",
+    "anula": [
+      "queenofpain_blink"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": false,
+    "confianza": "alta",
+    "motivo": "Hex le quita el Blink y la deja a tu alcance."
+  },
+  {
+    "id": "r3",
+    "enemigos": [
+      "Void Spirit"
+    ],
+    "rasgo": "escape por habilidad",
+    "counter": "Lion",
+    "habilidad": "lion_voodoo",
+    "habilidadNombre": "Hex",
+    "anula": [
+      "void_spirit_astral_step"
+    ],
+    "anulaEsUlti": true,
+    "esUlti": false,
+    "confianza": "media",
+    "motivo": "Hex le quita Astral Step y no puede huir."
+  },
+  {
+    "id": "r4",
+    "enemigos": [
+      "Ember Spirit"
+    ],
+    "rasgo": "escape por habilidad",
+    "counter": "Skywrath Mage",
+    "habilidad": "skywrath_mage_ancient_seal",
+    "habilidadNombre": "Ancient Seal",
+    "anula": [
+      "ember_spirit_fire_remnant"
+    ],
+    "anulaEsUlti": true,
+    "esUlti": false,
+    "confianza": "media",
+    "motivo": "Ancient Seal lo silencia y le corta Fire Remnant."
+  },
+  {
+    "id": "r5",
+    "enemigos": [
+      "Puck"
+    ],
+    "rasgo": "escape por habilidad",
+    "counter": "Death Prophet",
+    "habilidad": "death_prophet_silence",
+    "habilidadNombre": "Silence",
+    "anula": [
+      "puck_phase_shift"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": false,
+    "confianza": "media",
+    "motivo": "Silence en área le impide usar Phase Shift."
+  },
+  {
+    "id": "r6",
+    "enemigos": [
+      "Clinkz"
+    ],
+    "rasgo": "invisible",
+    "counter": "Slardar",
+    "habilidad": "slardar_amplify_damage",
+    "habilidadNombre": "Corrosive Haze",
+    "anula": [
+      "clinkz_wind_walk"
+    ],
+    "anulaEsUlti": true,
+    "esUlti": true,
+    "confianza": "alta",
+    "motivo": "Corrosive Haze lo revela aunque esté invisible."
+  },
+  {
+    "id": "r7",
+    "enemigos": [
+      "Riki"
+    ],
+    "rasgo": "invisible",
+    "counter": "Bounty Hunter",
+    "habilidad": "bounty_hunter_track",
+    "habilidadNombre": "Track",
+    "anula": [
+      "riki_backstab"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": true,
+    "confianza": "alta",
+    "motivo": "Track lo revela y puedes perseguirlo."
+  },
+  {
+    "id": "r8",
+    "enemigos": [
+      "Templar Assassin"
+    ],
+    "rasgo": "invisible",
+    "counter": "Slardar",
+    "habilidad": "slardar_amplify_damage",
+    "habilidadNombre": "Corrosive Haze",
+    "anula": [
+      "templar_assassin_meld"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": true,
+    "confianza": "media",
+    "motivo": "Corrosive Haze revela a Meld y le baja la armadura."
+  },
+  {
+    "id": "r9",
+    "enemigos": [
+      "Weaver"
+    ],
+    "rasgo": "invisible",
+    "counter": "Zeus",
+    "habilidad": "zuus_lightning_bolt",
+    "habilidadNombre": "Lightning Bolt",
+    "anula": [
+      "weaver_shukuchi"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": false,
+    "confianza": "media",
+    "motivo": "Lightning Bolt lo revela y lo frena un instante."
+  },
+  {
+    "id": "r10",
+    "enemigos": [
+      "Phantom Lancer"
+    ],
+    "rasgo": "ilusiones",
+    "counter": "Leshrac",
+    "habilidad": "leshrac_pulse_nova",
+    "habilidadNombre": "Pulse Nova",
+    "anula": [
+      "phantom_lancer_juxtapose"
+    ],
+    "anulaEsUlti": true,
+    "esUlti": true,
+    "confianza": "media",
+    "motivo": "Pulse Nova daña a todas sus ilusiones a la vez."
+  },
+  {
+    "id": "r11",
+    "enemigos": [
+      "Naga Siren"
+    ],
+    "rasgo": "ilusiones",
+    "counter": "Leshrac",
+    "habilidad": "leshrac_pulse_nova",
+    "habilidadNombre": "Pulse Nova",
+    "anula": [
+      "naga_siren_mirror_image"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": true,
+    "confianza": "media",
+    "motivo": "Pulse Nova limpia sus imágenes en área."
+  },
+  {
+    "id": "r12",
+    "enemigos": [
+      "Zeus",
+      "Lina"
+    ],
+    "rasgo": "depende del maná",
+    "counter": "Pugna",
+    "habilidad": "pugna_nether_ward",
+    "habilidadNombre": "Nether Ward",
+    "anula": [],
+    "anulaEsUlti": false,
+    "esUlti": false,
+    "confianza": "media",
+    "motivo": "Cada hechizo que lancen se les devuelve en daño."
+  },
+  {
+    "id": "r13",
+    "enemigos": [
+      "Invoker"
+    ],
+    "rasgo": "depende de lanzar o encadenar hechizos",
+    "counter": "Shadow Shaman",
+    "habilidad": "shadow_shaman_voodoo",
+    "habilidadNombre": "Hex",
+    "anula": [
+      "invoker_invoke"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": false,
+    "confianza": "media",
+    "motivo": "Hex le impide lanzar sus hechizos."
+  },
+  {
+    "id": "r14",
+    "enemigos": [
+      "Meepo"
+    ],
+    "rasgo": "depende de lanzar o encadenar hechizos",
+    "counter": "Lion",
+    "habilidad": "lion_voodoo",
+    "habilidadNombre": "Hex",
+    "anula": [
+      "meepo_poof"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": false,
+    "confianza": "media",
+    "motivo": "Hex le corta Poof y sus clones quedan sin escape."
+  },
+  {
+    "id": "r15",
+    "enemigos": [
+      "Lion",
+      "Shadow Shaman"
+    ],
+    "rasgo": "control en línea con silencio o hex",
+    "counter": "Abaddon",
+    "habilidad": "abaddon_aphotic_shield",
+    "habilidadNombre": "Aphotic Shield",
+    "anula": [
+      "lion_voodoo",
+      "shadow_shaman_voodoo"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": false,
+    "confianza": "media",
+    "motivo": "Aphotic Shield te quita el Hex y te cubre de daño."
+  },
+  {
+    "id": "r16",
+    "enemigos": [
+      "Skywrath Mage",
+      "Death Prophet"
+    ],
+    "rasgo": "control en línea con silencio o hex",
+    "counter": "Abaddon",
+    "habilidad": "abaddon_aphotic_shield",
+    "habilidadNombre": "Aphotic Shield",
+    "anula": [
+      "skywrath_mage_ancient_seal",
+      "death_prophet_silence"
+    ],
+    "anulaEsUlti": false,
+    "esUlti": false,
+    "confianza": "alta",
+    "motivo": "Aphotic Shield te quita el silencio al instante."
+  }
+]

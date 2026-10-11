@@ -181,7 +181,9 @@ public class HeroeAliasResolver {
         return new Indice(porNombre);
     }
 
-    static String normalizar(String texto) {
+    /** Sin acentos, en minúsculas y solo [a-z0-9]: la clave de comparación usada por el resolver y por quien
+     *  necesite comparar un nombre de héroe "a mano" (listas curadas, reglas de habilidad, etc.). */
+    public static String normalizar(String texto) {
         if (texto == null) {
             return "";
         }

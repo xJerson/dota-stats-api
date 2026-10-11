@@ -26,8 +26,11 @@ class CacheDiscoTest {
                 Map.of(1, new HeroeMeta(1, "Alfa", Set.of("Carry", "Nuker"), 1500, 780)),
                 new Parche(60, "7.41"),
                 Instant.parse("2026-10-10T12:00:00Z"),
-                Map.of(1, Map.of(1, 700L), 2, Map.of(1, 200L), 3, Map.of(1, 100L)));
-        return new SnapshotMeta(SnapshotMeta.VERSION, datos, Map.of(1, Map.of(2, new Duelo(90, 50))));
+                Map.of(1, Map.of(1, 700L), 2, Map.of(1, 200L), 3, Map.of(1, 100L)),
+                Map.of(1, Map.of(1, 400L), 2, Map.of(1, 100L), 3, Map.of(1, 50L)));
+        return new SnapshotMeta(SnapshotMeta.VERSION, datos, Map.of(1, Map.of(2, new Duelo(90, 50))),
+                Map.of("lion_voodoo", Map.of("dname", "Hex")),
+                Map.of("npc_dota_hero_lion", Map.of("abilities", List.of("lion_voodoo"))));
     }
 
     @Test
@@ -44,6 +47,32 @@ class CacheDiscoTest {
         assertThat(leido.get().datos().heroes().get(1).victorias()).isEqualTo(780);
         assertThat(leido.get().matchups().get(1).get(2)).isEqualTo(new Duelo(90, 50));
         assertThat(leido.get().datos().partidasPorLinea().get(2).get(1)).isEqualTo(200L);
+        assertThat(leido.get().datos().victoriasPorLinea().get(2).get(1)).isEqualTo(100L);
+        assertThat(leido.get().abilidades()).containsKey("lion_voodoo");
+        assertThat(leido.get().habilidadesPorHeroe()).containsKey("npc_dota_hero_lion");
+    }
+
+    @Test
+    void guardaYRecuperaElAlcanceDeAtaquePorHeroe() {
+        CacheDisco cache = new CacheDisco(dir.resolve("meta-cache.json"));
+        SnapshotMeta base = snapshot();
+
+        cache.guardar(new SnapshotMeta(SnapshotMeta.VERSION, base.datos(), base.matchups(), base.abilidades(),
+                base.habilidadesPorHeroe(), Map.of(1, 575)));
+
+        assertThat(cache.cargar().orElseThrow().rangoAtaquePorHeroe()).containsExactly(Map.entry(1, 575));
+    }
+
+    @Test
+    void unaCacheSinAlcanceDeAtaqueSeLeeConElAlcanceVacioEnVezDeIgnorarse() {
+        CacheDisco cache = new CacheDisco(dir.resolve("meta-cache.json"));
+        cache.guardar(snapshot()); // el constructor de 5 campos no trae alcance
+
+        Optional<SnapshotMeta> leido = cache.cargar();
+
+        assertThat(leido).isPresent();
+        assertThat(leido.get().rangoAtaquePorHeroe()).isEmpty();
+        assertThat(leido.get().abilidades()).containsKey("lion_voodoo");
     }
 
     @Test

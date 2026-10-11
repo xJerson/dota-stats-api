@@ -1,9 +1,9 @@
 package com.dotastats.config;
 
+import com.dotastats.analizadores.ServicioSugerencias;
 import com.dotastats.draft.CatalogoHeroesService;
 import com.dotastats.draft.DraftController;
 import com.dotastats.draft.HeroeAliasResolver;
-import com.dotastats.draft.MotorSugerencias;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -28,7 +28,7 @@ class WebConfigTest {
     @MockBean
     private HeroeAliasResolver resolver;
     @MockBean
-    private MotorSugerencias motorSugerencias;
+    private ServicioSugerencias servicioSugerencias;
     @MockBean
     private CatalogoHeroesService catalogo;
 

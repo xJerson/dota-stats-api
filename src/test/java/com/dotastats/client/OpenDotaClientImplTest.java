@@ -64,6 +64,54 @@ class OpenDotaClientImplTest {
     }
 
     @Test
+    void pideLasAbilidadesYLasCacheaEnMemoria() {
+        servidor.expect(requestTo("http://opendota.test/api/constants/abilities"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        "{\"lion_voodoo\":{\"dname\":\"Hex\",\"behavior\":\"Unit Target\"}}",
+                        MediaType.APPLICATION_JSON));
+
+        Map<String, Object> primera = client.obtenerAbilidades();
+        Map<String, Object> segunda = client.obtenerAbilidades(); // no repite la petición (está cacheada)
+
+        assertThat(primera).containsKey("lion_voodoo");
+        assertThat(segunda).isSameAs(primera);
+        servidor.verify();
+    }
+
+    @Test
+    void pideLasHabilidadesPorHeroeYLasCacheaEnMemoria() {
+        servidor.expect(requestTo("http://opendota.test/api/constants/hero_abilities"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        "{\"npc_dota_hero_lion\":{\"abilities\":[\"lion_voodoo\"]}}",
+                        MediaType.APPLICATION_JSON));
+
+        Map<String, Object> primera = client.obtenerHabilidadesPorHeroe();
+        Map<String, Object> segunda = client.obtenerHabilidadesPorHeroe(); // no repite la petición (está cacheada)
+
+        assertThat(primera).containsKey("npc_dota_hero_lion");
+        assertThat(segunda).isSameAs(primera);
+        servidor.verify();
+    }
+
+    @Test
+    void pideLosHeroesConstantesYLosCacheaEnMemoria() {
+        servidor.expect(requestTo("http://opendota.test/api/constants/heroes"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        "{\"17\":{\"id\":17,\"localized_name\":\"Storm Spirit\",\"attack_range\":480}}",
+                        MediaType.APPLICATION_JSON));
+
+        Map<String, Object> primera = client.obtenerHeroesConstantes();
+        Map<String, Object> segunda = client.obtenerHeroesConstantes(); // no repite la petición (está cacheada)
+
+        assertThat(primera).containsKey("17");
+        assertThat(segunda).isSameAs(primera);
+        servidor.verify();
+    }
+
+    @Test
     void pideLasLineasPorRolYDevuelveLasFilasTalCualLasEntregaOpenDota() {
         servidor.expect(requestTo("http://opendota.test/api/scenarios/laneRoles?lane_role=2"))
                 .andExpect(method(HttpMethod.GET))

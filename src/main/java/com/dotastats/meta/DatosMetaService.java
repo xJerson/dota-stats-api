@@ -74,6 +74,9 @@ public class DatosMetaService {
     private int generacion;
 
     private volatile DatosMeta datos;
+    private volatile Map<String, Object> abilidades;
+    private volatile Map<String, Object> habilidadesPorHeroe;
+    private volatile Map<Integer, Integer> rangoAtaquePorHeroe;
     private volatile boolean cacheDiscoUsada;
     private volatile String ultimoError;
     private volatile Parche parcheVivo;
@@ -199,6 +202,86 @@ public class DatosMetaService {
         return descargoAlgo;
     }
 
+    /**
+     * {@code /constants/abilities} y {@code /constants/hero_abilities}, para la fila de jugabilidad automática
+     * (ver {@code CatalogoHabilidades}). Se piden a OpenDota solo la primera vez que se necesitan (NO al
+     * arrancar), se cachean en memoria y disco junto al resto del snapshot, y se descartan cuando cambia el
+     * parche (igual que los matchups: ver {@link #recargarDesdeRed()}). Un fallo no se cachea, para reintentar
+     * en la siguiente llamada.
+     *
+     * @throws DatosNoCargadosException si todavía no hay datos base
+     */
+    public DatosHabilidad datosHabilidad() {
+        if (datos == null) {
+            throw new DatosNoCargadosException();
+        }
+        Map<String, Object> actualAbilidades;
+        Map<String, Object> actualHabilidadesPorHeroe;
+        Map<Integer, Integer> actualRango;
+        synchronized (cerrojo) {
+            actualAbilidades = abilidades;
+            actualHabilidadesPorHeroe = habilidadesPorHeroe;
+            actualRango = rangoAtaquePorHeroe;
+        }
+        if (actualAbilidades != null && actualHabilidadesPorHeroe != null && actualRango != null) {
+            return new DatosHabilidad(actualAbilidades, actualHabilidadesPorHeroe, actualRango);
+        }
+        boolean pidioAlgo = false;
+        if (actualAbilidades == null || actualHabilidadesPorHeroe == null) {
+            Map<String, Object> nuevaAbilidades = client.obtenerAbilidades();
+            Map<String, Object> nuevasHabilidadesPorHeroe = client.obtenerHabilidadesPorHeroe();
+            if (nuevaAbilidades == null || nuevaAbilidades.isEmpty()
+                    || nuevasHabilidadesPorHeroe == null || nuevasHabilidadesPorHeroe.isEmpty()) {
+                throw new OpenDotaNoDisponibleException(
+                        "OpenDota no devolvió /constants/abilities o /constants/hero_abilities");
+            }
+            synchronized (cerrojo) {
+                abilidades = nuevaAbilidades;
+                habilidadesPorHeroe = nuevasHabilidadesPorHeroe;
+            }
+            actualAbilidades = nuevaAbilidades;
+            actualHabilidadesPorHeroe = nuevasHabilidadesPorHeroe;
+            pidioAlgo = true;
+        }
+        if (actualRango == null) {
+            // El alcance de ataque solo alimenta la herramienta derivada RANGO_MAYOR: si falta no es un error, y
+            // tampoco se cachea (se reintenta en la siguiente llamada, que solo hace la tabla una vez por snapshot).
+            Map<Integer, Integer> nuevoRango = pedirAlcanceDeAtaque();
+            if (!nuevoRango.isEmpty()) {
+                synchronized (cerrojo) {
+                    rangoAtaquePorHeroe = nuevoRango;
+                }
+                pidioAlgo = true;
+            }
+            actualRango = nuevoRango;
+        }
+        if (pidioAlgo) {
+            persistir();
+        }
+        return new DatosHabilidad(actualAbilidades, actualHabilidadesPorHeroe, actualRango);
+    }
+
+    /** heroId -> {@code attack_range} base de {@code /constants/heroes}; vacío si OpenDota no responde o no lo trae. */
+    private Map<Integer, Integer> pedirAlcanceDeAtaque() {
+        try {
+            Map<String, Object> crudo = client.obtenerHeroesConstantes();
+            Map<Integer, Integer> rango = new HashMap<>();
+            if (crudo != null) {
+                for (Object valor : crudo.values()) {
+                    if (valor instanceof Map<?, ?> heroe && heroe.get("id") instanceof Number id
+                            && heroe.get("attack_range") instanceof Number alcance) {
+                        rango.put(id.intValue(), alcance.intValue());
+                    }
+                }
+            }
+            return Map.copyOf(rango);
+        } catch (RuntimeException e) {
+            log.warn("No se pudo obtener /constants/heroes; la fila de jugabilidad queda sin la herramienta de "
+                    + "alcance de ataque: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
     public EstadoMeta estado() {
         DatosMeta actual = datos;
         if (actual != null && !cargando.get()) {
@@ -247,6 +330,9 @@ public class DatosMetaService {
                 matchups.clear();
                 snapshot.matchups().forEach((id, contra) -> matchups.put(id, Map.copyOf(contra)));
                 datos = snapshot.datos();
+                abilidades = snapshot.abilidades().isEmpty() ? null : snapshot.abilidades();
+                habilidadesPorHeroe = snapshot.habilidadesPorHeroe().isEmpty() ? null : snapshot.habilidadesPorHeroe();
+                rangoAtaquePorHeroe = snapshot.rangoAtaquePorHeroe().isEmpty() ? null : snapshot.rangoAtaquePorHeroe();
                 cacheDiscoUsada = true;
             }
             ultimoError = null;
@@ -270,10 +356,16 @@ public class DatosMetaService {
                 HeroeMeta heroe = aHeroe(s);
                 heroes.put(heroe.id(), heroe);
             }
-            DatosMeta nuevos = new DatosMeta(heroes, parche, reloj.instant(), cargarLineas());
+            DatosLinea lineas = cargarLineas();
+            DatosMeta nuevos = new DatosMeta(heroes, parche, reloj.instant(), lineas.partidas(), lineas.victorias());
             synchronized (cerrojo) {
                 generacion++;
                 matchups.clear();
+                // Las habilidades no dependen del parche en teoría, pero se descartan igual que los matchups
+                // para que una recarga (manual o por parche nuevo) también las refresque sin esperar un reinicio.
+                abilidades = null;
+                habilidadesPorHeroe = null;
+                rangoAtaquePorHeroe = null;
                 datos = nuevos;
                 cacheDiscoUsada = false;
             }
@@ -292,28 +384,38 @@ public class DatosMetaService {
     }
 
     /**
-     * Partidas por héroe en las líneas 1-3 ({@code /scenarios/laneRoles}, una petición por línea). Si cualquiera falla
-     * o llega vacía devuelve un mapa vacío: el meta se carga igual y el motor recurre a las etiquetas de rol.
+     * Partidas y victorias por héroe en las líneas 1-3 ({@code /scenarios/laneRoles}, una petición por línea). Si
+     * cualquiera falla o llega vacía devuelve ambos mapas vacíos: el meta se carga igual y el motor recurre a las
+     * etiquetas de rol (y al meta global en vez del meta por posición).
      */
-    private Map<Integer, Map<Integer, Long>> cargarLineas() {
-        Map<Integer, Map<Integer, Long>> lineas = new HashMap<>();
+    private DatosLinea cargarLineas() {
+        Map<Integer, Map<Integer, Long>> partidas = new HashMap<>();
+        Map<Integer, Map<Integer, Long>> victorias = new HashMap<>();
         try {
             for (int linea = 1; linea <= 3; linea++) {
                 List<Map<String, Object>> filas = client.obtenerLaneRoles(linea);
                 if (filas == null || filas.isEmpty()) {
                     throw new OpenDotaNoDisponibleException("OpenDota no devolvió datos de la línea " + linea);
                 }
-                Map<Integer, Long> porHeroe = new HashMap<>();
+                Map<Integer, Long> porHeroePartidas = new HashMap<>();
+                Map<Integer, Long> porHeroeVictorias = new HashMap<>();
                 for (Map<String, Object> f : filas) {
-                    porHeroe.merge((int) numero(f.get("hero_id")), numero(f.get("games")), Long::sum);
+                    int heroId = (int) numero(f.get("hero_id"));
+                    porHeroePartidas.merge(heroId, numero(f.get("games")), Long::sum);
+                    porHeroeVictorias.merge(heroId, numero(f.get("wins")), Long::sum);
                 }
-                lineas.put(linea, porHeroe);
+                partidas.put(linea, porHeroePartidas);
+                victorias.put(linea, porHeroeVictorias);
             }
         } catch (RuntimeException e) {
             log.warn("No se pudieron obtener las líneas de los héroes, se usarán las etiquetas de rol: {}", e.getMessage());
-            return Map.of();
+            return new DatosLinea(Map.of(), Map.of());
         }
-        return lineas;
+        return new DatosLinea(partidas, victorias);
+    }
+
+    /** Resultado intermedio de {@link #cargarLineas()}: partidas y victorias por línea, con la misma forma. */
+    private record DatosLinea(Map<Integer, Map<Integer, Long>> partidas, Map<Integer, Map<Integer, Long>> victorias) {
     }
 
     private Obtenido obtener(int enemigoId, boolean yaDescargoEnEstaLlamada) {
@@ -382,7 +484,10 @@ public class DatosMetaService {
             if (datos == null) {
                 return;
             }
-            snapshot = new SnapshotMeta(SnapshotMeta.VERSION, datos, Map.copyOf(matchups));
+            snapshot = new SnapshotMeta(SnapshotMeta.VERSION, datos, Map.copyOf(matchups),
+                    abilidades == null ? Map.of() : abilidades,
+                    habilidadesPorHeroe == null ? Map.of() : habilidadesPorHeroe,
+                    rangoAtaquePorHeroe == null ? Map.of() : rangoAtaquePorHeroe);
         }
         cacheDisco.guardar(snapshot);
     }
@@ -430,12 +535,14 @@ public class DatosMetaService {
         if (s.get("roles") instanceof List<?> lista) {
             lista.forEach(r -> roles.add(String.valueOf(r)));
         }
+        Object nombreInterno = s.get("name");
         return new HeroeMeta(
                 (int) numero(s.get("id")),
                 String.valueOf(s.get("localized_name")),
                 roles,
                 partidas,
-                victorias);
+                victorias,
+                nombreInterno == null ? null : String.valueOf(nombreInterno));
     }
 
     private Map<Integer, Duelo> aDuelos(List<Map<String, Object>> filas) {

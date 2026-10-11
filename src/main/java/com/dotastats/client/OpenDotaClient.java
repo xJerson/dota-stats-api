@@ -35,4 +35,20 @@ public interface OpenDotaClient {
 
     /** Último parche publicado por OpenDota (el de id más alto). */
     Parche obtenerParche();
+
+    /** /constants/abilities: clave interna de habilidad -> sus datos (nombre, comportamiento, dispel, etc.). */
+    Map<String, Object> obtenerAbilidades();
+
+    /**
+     * /constants/hero_abilities: nombre interno del héroe ({@code npc_dota_hero_x}) -> sus habilidades (entre
+     * otros campos, {@code abilities}: la lista de claves internas, en orden, incluida {@code generic_hidden}
+     * y las de talento {@code special_bonus_*} que no son habilidades jugables).
+     */
+    Map<String, Object> obtenerHabilidadesPorHeroe();
+
+    /**
+     * /constants/heroes: id del héroe (como cadena) -> sus datos base (entre otros, {@code attack_range}, el alcance
+     * de ataque base). Se usa para la herramienta derivada RANGO_MAYOR de la fila de jugabilidad.
+     */
+    Map<String, Object> obtenerHeroesConstantes();
 }

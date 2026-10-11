@@ -1,5 +1,7 @@
 package com.dotastats.draft;
 
+import com.dotastats.analizadores.ResultadoFilas;
+import com.dotastats.analizadores.ServicioSugerencias;
 import com.dotastats.util.SteamIdConverter;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,14 +22,14 @@ import java.util.TreeMap;
 public class DraftController {
 
     private final HeroeAliasResolver resolver;
-    private final MotorSugerencias motorSugerencias;
+    private final ServicioSugerencias servicioSugerencias;
     private final CatalogoHeroesService catalogo;
 
-    public DraftController(HeroeAliasResolver resolver, MotorSugerencias motorSugerencias,
+    public DraftController(HeroeAliasResolver resolver, ServicioSugerencias servicioSugerencias,
                            CatalogoHeroesService catalogo) {
         this.catalogo = catalogo;
         this.resolver = resolver;
-        this.motorSugerencias = motorSugerencias;
+        this.servicioSugerencias = servicioSugerencias;
     }
 
     @GetMapping("/roles")
@@ -51,18 +53,17 @@ public class DraftController {
 
         List<Integer> aliadosElegidos = new ArrayList<>(idsAliados.values());
         // Los enemigos van por slot: el motor pondera distinto al rival de mi línea que al resto.
-        ResultadoSugerencias resultado = request.personaliza()
-                // un steamId no numérico lanza IllegalArgumentException -> 400 STEAM_ID_INVALIDO
-                ? motorSugerencias.sugerir(request.miRol(), idsEnemigos, aliadosElegidos,
-                        SteamIdConverter.toAccountId(request.steamId().trim()))
-                : motorSugerencias.sugerir(request.miRol(), idsEnemigos, aliadosElegidos);
+        // un steamId no numérico lanza IllegalArgumentException -> 400 STEAM_ID_INVALIDO
+        Long accountId = request.personaliza() ? SteamIdConverter.toAccountId(request.steamId().trim()) : null;
+        ResultadoFilas resultado = servicioSugerencias.generar(request.miRol(), idsEnemigos, aliadosElegidos,
+                accountId);
 
         return new DraftResponse(
                 request.miRol(),
                 new Equipos<>(enemigos.resueltos, aliados.resueltos),
                 new Equipos<>(enemigos.ambiguos, aliados.ambiguos),
                 new Equipos<>(enemigos.noEncontrados, aliados.noEncontrados),
-                resultado.sugerencias(),
+                resultado.filas(),
                 resultado.advertencias());
     }
 

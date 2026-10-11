@@ -9,6 +9,7 @@ import com.dotastats.meta.DatosMetaService;
 import com.dotastats.meta.Duelo;
 import com.dotastats.meta.HeroeMeta;
 import com.dotastats.meta.MatchupsEnemigos;
+import com.dotastats.meta.Wilson;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -22,6 +23,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -77,16 +79,36 @@ class MotorSugerenciasPuntajeTest {
         });
     }
 
+    /** Por defecto los carries (1-4, 9) juegan siempre la línea segura y los soportes la ofensiva. */
     private void publicar() {
-        // Por defecto los carries (1-4, 9) juegan siempre la línea segura y los soportes la ofensiva.
         Map<Integer, Long> segura = Map.of(1, 1000L, 2, 1000L, 3, 1000L, 4, 1000L, 9, 1000L);
         Map<Integer, Long> ofensiva = Map.of(5, 1000L, 6, 1000L);
         publicar(Map.of(1, segura, 2, Map.of(), 3, ofensiva));
     }
 
+    /**
+     * Publica datos de línea derivando las victorias de cada héroe con el mismo winrate que su meta global
+     * (Wilson): así el meta por posición queda prácticamente igual al meta global salvo que un test pase sus
+     * propias victorias con el overload de dos mapas para probar la mezcla.
+     */
     private void publicar(Map<Integer, Map<Integer, Long>> partidasPorLinea) {
+        Map<Integer, Map<Integer, Long>> victoriasPorLinea = new HashMap<>();
+        partidasPorLinea.forEach((linea, porHeroe) -> {
+            Map<Integer, Long> victorias = new HashMap<>();
+            porHeroe.forEach((heroId, partidas) -> {
+                HeroeMeta h = heroes.get(heroId);
+                double wilson = h == null ? 0.0 : Wilson.limiteInferior(h.victorias(), h.partidas(), 1.96);
+                victorias.put(heroId, Math.round(partidas * wilson));
+            });
+            victoriasPorLinea.put(linea, victorias);
+        });
+        publicar(partidasPorLinea, victoriasPorLinea);
+    }
+
+    private void publicar(Map<Integer, Map<Integer, Long>> partidasPorLinea,
+                          Map<Integer, Map<Integer, Long>> victoriasPorLinea) {
         DatosMeta datos = new DatosMeta(heroes, new Parche(60, "7.41"), Instant.parse("2026-10-10T12:00:00Z"),
-                partidasPorLinea);
+                partidasPorLinea, victoriasPorLinea);
         when(servicio.datosParaSugerir()).thenReturn(datos);
     }
 
@@ -104,8 +126,9 @@ class MotorSugerenciasPuntajeTest {
         return slots;
     }
 
+    /** Los ids que se verían en la fila: el motor devuelve el ranking completo y el servicio lo recorta. */
     private static List<Integer> ids(List<Sugerencia> sugerencias) {
-        return sugerencias.stream().map(Sugerencia::heroId).toList();
+        return sugerencias.stream().limit(MotorSugerenciasPuntaje.MAX_SUGERENCIAS).map(Sugerencia::heroId).toList();
     }
 
     private static Sugerencia de(List<Sugerencia> sugerencias, int heroId) {
@@ -114,6 +137,16 @@ class MotorSugerenciasPuntajeTest {
 
     private List<Sugerencia> sugerir(int rol, Map<Integer, Integer> enemigos, List<Integer> aliados) {
         return motor.sugerir(rol, enemigos, aliados).sugerencias();
+    }
+
+    /** Reproduce el winrate de línea que deriva el {@code publicar(partidasPorLinea)} por defecto (ratio = meta
+     *  global Wilson), para poder comparar el texto del motivo sin hardcodear decimales. */
+    private String winrateLineaTexto(int heroId, long partidasLinea, String etiqueta) {
+        HeroeMeta h = heroes.get(heroId);
+        double wilson = Wilson.limiteInferior(h.victorias(), h.partidas(), 1.96);
+        long victorias = Math.round(partidasLinea * wilson);
+        double winrate = (double) victorias / partidasLinea * 100;
+        return String.format(Locale.ROOT, "%.1f%% de winrate como %s", winrate, etiqueta);
     }
 
     @Test
@@ -145,22 +178,26 @@ class MotorSugerenciasPuntajeTest {
         List<Sugerencia> r = sugerir(1, Map.of(), List.of());
 
         assertThat(r.get(0).heroe()).isEqualTo("Alfa");
-        assertThat(r.get(0).motivo()).contains("53.0% en el meta").doesNotContain("contra");
+        assertThat(r.get(0).motivo()).contains(winrateLineaTexto(1, 1000, "carry")).doesNotContain("contra");
     }
 
     @Test
     void unBuenCounterContraUnEnemigoCambiaElOrden() {
         duelo(1, 9, 100, 40); // Alfa pierde contra el enemigo
         duelo(2, 9, 100, 60); // Beta le gana
+        double metaPos = de(sugerir(1, Map.of(), List.of()), 2).puntaje();
 
         List<Sugerencia> r = sugerir(1, directos(9), List.of());
 
+        double estimacion = (60 + 100 * metaPos) / (100 + 100);
+        String tendencia = String.format(Locale.ROOT, "tendencia: %+.0f%% contra Enemigo (100 partidas)",
+                (estimacion - metaPos) * 100);
         assertThat(r.get(0).heroId()).isEqualTo(2);
-        assertThat(r.get(0).motivo()).contains("52.0% en el meta").contains("fuerte contra Enemigo (60%)");
+        assertThat(r.get(0).motivo()).contains(winrateLineaTexto(2, 1000, "carry")).contains(tendencia);
     }
 
     @Test
-    void unDueloConPocasPartidasApenasMuevePuntajeYNoSeMencionaComoCounter() {
+    void unDueloConPocasPartidasApenasMuevePuntajeYNoSeMencionaComoTendencia() {
         List<Sugerencia> base = sugerir(1, Map.of(), List.of());
         duelo(2, 9, 3, 3); // 100% pero solo 3 partidas
 
@@ -168,7 +205,7 @@ class MotorSugerenciasPuntajeTest {
 
         assertThat(ids(r)).isEqualTo(ids(base));
         assertThat(de(r, 2).puntaje()).isCloseTo(de(base, 2).puntaje(), within(0.02));
-        assertThat(de(r, 2).motivo()).doesNotContain("fuerte contra");
+        assertThat(de(r, 2).motivo()).doesNotContain("tendencia:");
     }
 
     @Test
@@ -179,13 +216,13 @@ class MotorSugerenciasPuntajeTest {
         List<Sugerencia> r = sugerir(1, directos(9), List.of());
 
         assertThat(de(r, 1).puntaje()).isCloseTo(de(base, 1).puntaje(), within(1e-12));
-        assertThat(de(r, 1).motivo()).doesNotContain("fuerte contra");
+        assertThat(de(r, 1).motivo()).doesNotContain("tendencia:");
     }
 
     @Test
     void tenerDatosDeDueloNeutrosNoPenalizaFrenteAQuienNoLosTiene() {
         List<Sugerencia> base = sugerir(1, Map.of(), List.of());
-        // Beta (52% en meta) rinde ~lo esperado contra el enemigo con una muestra grande; Delta (51%) no tiene datos.
+        // Beta rinde ~lo esperado contra el enemigo con una muestra grande; Delta no tiene datos.
         duelo(2, 9, 1000, 510);
 
         List<Sugerencia> r = sugerir(1, directos(9), List.of());
@@ -200,20 +237,24 @@ class MotorSugerenciasPuntajeTest {
 
         List<Sugerencia> r = sugerir(1, directos(9), List.of());
 
-        // Beta (52% en meta) cae incluso por debajo de Gamma, que ni siquiera tiene duelo
+        // Beta cae incluso por debajo de Gamma, que ni siquiera tiene duelo
         assertThat(ids(r)).containsExactly(1, 4, 3);
     }
 
     @Test
-    void promediaElCounterSobreVariosEnemigosYNombraSoloLosFuertes() {
+    void promediaElCounterSobreVariosEnemigosYSoloCitaLasTendenciasQueSuperanElUmbral() {
         heroes.put(8, new HeroeMeta(8, "Otro", Set.of("Carry"), 10000, 5000));
         publicar();
-        duelo(2, 9, 100, 60);
-        duelo(2, 8, 100, 40); // débil contra Otro: no se destaca
+        double metaPos = de(sugerir(1, Map.of(), List.of()), 2).puntaje();
+        duelo(2, 9, 100, 60); // se aleja claramente del meta: debe citarse
+        duelo(2, 8, 100, (int) Math.round(metaPos * 100)); // prácticamente en el meta: no se cita
 
-        List<Sugerencia> r = sugerir(1, directos(8, 9), List.of());
+        String motivo = de(sugerir(1, directos(8, 9), List.of()), 2).motivo();
 
-        assertThat(de(r, 2).motivo()).contains("fuerte contra Enemigo (60%)").doesNotContain("Otro");
+        double estimacion = (60 + 100 * metaPos) / (100 + 100);
+        String tendencia = String.format(Locale.ROOT, "tendencia: %+.0f%% contra Enemigo (100 partidas)",
+                (estimacion - metaPos) * 100);
+        assertThat(motivo).contains(tendencia).doesNotContain("Otro");
     }
 
     @Test
@@ -262,12 +303,16 @@ class MotorSugerenciasPuntajeTest {
     void conUnEnemigoFallidoYOtroBienSoloElFallidoPuntuaConMeta() {
         heroes.put(8, new HeroeMeta(8, "Otro", Set.of("Carry"), 10000, 5000));
         publicar();
+        double metaPos = de(sugerir(1, Map.of(), List.of()), 2).puntaje();
         duelo(2, 8, 100, 60);
         fallidos.add(9);
 
         ResultadoSugerencias r = motor.sugerir(1, directos(8, 9), List.of());
 
-        assertThat(de(r.sugerencias(), 2).motivo()).contains("fuerte contra Otro (60%)");
+        double estimacion = (60 + 100 * metaPos) / (100 + 100);
+        String tendencia = String.format(Locale.ROOT, "tendencia: %+.0f%% contra Otro (100 partidas)",
+                (estimacion - metaPos) * 100);
+        assertThat(de(r.sugerencias(), 2).motivo()).contains(tendencia);
         assertThat(r.advertencias()).hasSize(1);
         assertThat(r.advertencias().get(0)).contains("Enemigo").doesNotContain("Otro");
     }
@@ -314,7 +359,7 @@ class MotorSugerenciasPuntajeTest {
 
     @Test
     void elComponentePersonalEsContraccionHaciaElMetaConFuerzaPriorPersonal() {
-        double meta = de(sugerir(1, Map.of(), List.of()), 2).puntaje(); // sin enemigos el puntaje es el meta (Wilson)
+        double meta = de(sugerir(1, Map.of(), List.of()), 2).puntaje(); // sin enemigos el puntaje es el meta por posición
         // Beta: 40 partidas, 30 victorias. personal = (30 + 20*meta) / (40 + 20). Peso por defecto 0.25.
         double personal = (30 + 20 * meta) / (40 + 20);
 
@@ -350,14 +395,14 @@ class MotorSugerenciasPuntajeTest {
     void elMotivoMencionaElWinrateYLasPartidasPersonalesDesdeElMinimo() {
         List<Sugerencia> r = conPerfil(rendimiento(1, 40, 26, 2, 5, 3, 4, 4, 4), Map.of()).sugerencias();
 
-        assertThat(de(r, 1).motivo()).contains("53.0% en el meta").contains("tu winrate: 65% en 40 partidas");
+        assertThat(de(r, 1).motivo()).contains(winrateLineaTexto(1, 1000, "carry")).contains("tu winrate: 65% en 40 partidas");
         assertThat(de(r, 2).motivo()).contains("tu winrate: 60% en 5 partidas"); // justo en el mínimo
         assertThat(de(r, 4).motivo()).doesNotContain("tu winrate"); // 4 < 5: muestra demasiado pequeña para citarla
     }
 
     @Test
     void elMinimoDePartidasParaCitarElWinrateEsConfigurable() {
-        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 2, 0.20, 30, 1.0, 0.5, null, null, null);
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.25, 20, 2, 0.20, 30, 1.0, 0.5, 200, 0.03, null, null, null);
         MotorSugerenciasPuntaje otro = new MotorSugerenciasPuntaje(servicio, perfiles, props);
         when(perfiles.obtener(CUENTA)).thenReturn(rendimiento(4, 2, 1));
 
@@ -368,7 +413,7 @@ class MotorSugerenciasPuntajeTest {
 
     @Test
     void elPesoYLaFuerzaPersonalesSonConfigurables() {
-        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.5, 100, 5, 0.20, 30, 1.0, 0.5, null, null, null);
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.5, 100, 5, 0.20, 30, 1.0, 0.5, 200, 0.03, null, null, null);
         MotorSugerenciasPuntaje otro = new MotorSugerenciasPuntaje(servicio, perfiles, props);
         when(perfiles.obtener(CUENTA)).thenReturn(rendimiento(2, 100, 100));
         double meta = de(sugerir(1, Map.of(), List.of()), 2).puntaje();
@@ -490,7 +535,7 @@ class MotorSugerenciasPuntajeTest {
                 1, Map.of(1, 500L, 2, 800L),
                 2, Map.of(1, 500L, 2, 10L),
                 3, Map.of()));
-        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.01, 5, 1.0, 0.5, null, null, null);
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.25, 20, 5, 0.01, 5, 1.0, 0.5, 200, 0.03, null, null, null);
         MotorSugerenciasPuntaje laxo = new MotorSugerenciasPuntaje(servicio, perfiles, props);
 
         assertThat(ids(laxo.sugerir(2, Map.of(), List.of()).sugerencias())).containsExactly(1, 2);
@@ -528,7 +573,7 @@ class MotorSugerenciasPuntajeTest {
 
     @Test
     void laExclusionManualQuitaAlHeroePorNombreSinDistinguirMayusculas() {
-        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.20, 30, 1.0, 0.5, null,
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.25, 20, 5, 0.20, 30, 1.0, 0.5, 200, 0.03, null,
                 Map.of(1, List.of("alfa ")), null);
         MotorSugerenciasPuntaje otro = new MotorSugerenciasPuntaje(servicio, perfiles, props);
 
@@ -544,8 +589,8 @@ class MotorSugerenciasPuntajeTest {
 
     private MotorSugerenciasPuntaje motorConListas(Map<Integer, List<String>> listas,
                                                    Map<Integer, List<String>> excluidos) {
-        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.30, 30, 1.0, 0.5,
-                null, excluidos, listas);
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.25, 20, 5, 0.30, 30, 1.0, 0.5,
+                200, 0.03, null, excluidos, listas);
         return new MotorSugerenciasPuntaje(servicio, perfiles, props);
     }
 
@@ -671,8 +716,8 @@ class MotorSugerenciasPuntajeTest {
     // --- Peso por posición del enemigo (oponentes directos de la línea) ---
 
     private MotorSugerenciasPuntaje motorConPesos(double directo, double otros) {
-        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 10, 100, 1.96, 0.25, 20, 5, 0.30, 30,
-                directo, otros, null, null, null);
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.25, 20, 5, 0.30, 30,
+                directo, otros, 200, 0.03, null, null, null);
         return new MotorSugerenciasPuntaje(servicio, perfiles, props);
     }
 
@@ -751,12 +796,16 @@ class MotorSugerenciasPuntajeTest {
     void unOponenteDirectoSinDatosSuficientesSeNombraEnElMotivo() {
         heroes.put(8, new HeroeMeta(8, "Otro", Set.of("Carry"), 10000, 5000));
         publicar();
-        duelo(2, 9, 3, 3); // solo 3 partidas
+        double metaPos = de(sugerir(1, Map.of(), List.of()), 2).puntaje();
+        duelo(2, 9, 3, 3); // solo 3 partidas: no alcanza partidas-minimas-duelo
         duelo(2, 8, 1000, 700); // hay datos reales contra Otro, así que no es un ranking solo por meta
 
         String motivo = de(sugerir(1, Map.of(3, 9, 4, 8), List.of()), 2).motivo();
 
-        assertThat(motivo).contains("fuerte contra Otro (70%)").contains("sin datos suficientes contra Enemigo")
+        double estimacion = (700 + 100 * metaPos) / (1000 + 100);
+        String tendencia = String.format(Locale.ROOT, "tendencia: %+.0f%% contra Otro (1000 partidas)",
+                (estimacion - metaPos) * 100);
+        assertThat(motivo).contains(tendencia).contains("sin datos suficientes contra Enemigo")
                 .doesNotContain("según el meta");
     }
 
@@ -764,12 +813,16 @@ class MotorSugerenciasPuntajeTest {
     void unEnemigoQueNoEsOponenteDirectoNoApareceComoFaltaDeDatos() {
         heroes.put(8, new HeroeMeta(8, "Otro", Set.of("Carry"), 10000, 5000));
         publicar();
+        double metaPos = de(sugerir(1, Map.of(), List.of()), 2).puntaje();
         duelo(2, 8, 1000, 700);
 
         // Posición 1: el slot 1 enemigo no es oponente directo; el 9 sin datos no se nombra
         String motivo = de(sugerir(1, Map.of(3, 8, 1, 9), List.of()), 2).motivo();
 
-        assertThat(motivo).contains("fuerte contra Otro (70%)").doesNotContain("Enemigo");
+        double estimacion = (700 + 100 * metaPos) / (1000 + 100);
+        String tendencia = String.format(Locale.ROOT, "tendencia: %+.0f%% contra Otro (1000 partidas)",
+                (estimacion - metaPos) * 100);
+        assertThat(motivo).contains(tendencia).doesNotContain("Enemigo");
     }
 
     @Test
@@ -777,28 +830,146 @@ class MotorSugerenciasPuntajeTest {
         heroes.put(7, new HeroeMeta(7, "Tercero", Set.of("Carry"), 10000, 5000));
         heroes.put(8, new HeroeMeta(8, "Otro", Set.of("Carry"), 10000, 5000));
         publicar();
+        double metaPos = de(sugerir(1, Map.of(), List.of()), 2).puntaje();
         duelo(2, 7, 1000, 700); // algún dato usable (contra un enemigo no directo) evita el modo solo-meta
 
         // Posición 1: oponentes directos = slots 3 y 4; el slot 5 no cuenta como falta de datos
         String motivo = de(sugerir(1, Map.of(3, 9, 4, 8, 5, 7), List.of()), 2).motivo();
 
+        double estimacion = (700 + 100 * metaPos) / (1000 + 100);
+        String tendencia = String.format(Locale.ROOT, "tendencia: %+.0f%% contra Tercero (1000 partidas)",
+                (estimacion - metaPos) * 100);
         assertThat(motivo).contains("sin datos suficientes contra Enemigo y Otro")
-                .doesNotContain("y Tercero").contains("fuerte contra Tercero (70%)");
+                .doesNotContain("y Tercero").contains(tendencia);
     }
 
     @Test
-    void sinDatosDeDueloSuficientesElMotivoDiceQueEsUnRankingPorMeta() {
+    void sinDatosDeDueloSuficientesElMotivoDiceQueNoHayVentajaDeDueloRelevante() {
         duelo(2, 9, 3, 3); // muestra insuficiente
 
         List<Sugerencia> r = sugerir(1, Map.of(3, 9), List.of());
 
-        assertThat(de(r, 2).motivo()).contains("según el meta, sin datos de duelo suficientes")
-                .doesNotContain("sin datos suficientes contra").doesNotContain("fuerte contra");
-        assertThat(de(r, 1).motivo()).contains("según el meta, sin datos de duelo suficientes");
+        assertThat(de(r, 2).motivo()).contains("según el meta, sin ventaja de duelo relevante")
+                .doesNotContain("sin datos suficientes contra").doesNotContain("tendencia:");
+        assertThat(de(r, 1).motivo()).contains("según el meta, sin ventaja de duelo relevante");
     }
 
     @Test
     void sinEnemigosElMotivoNoHablaDeDuelos() {
         assertThat(de(sugerir(1, Map.of(), List.of()), 1).motivo()).doesNotContain("duelo").doesNotContain("datos");
+    }
+
+    @Test
+    void nuncaDiceFuerteContra() {
+        duelo(1, 9, 100, 40);
+        duelo(2, 9, 100, 60);
+
+        List<Sugerencia> r = sugerir(1, directos(9), List.of());
+
+        assertThat(r).allSatisfy(s -> assertThat(s.motivo()).doesNotContain("fuerte contra"));
+    }
+
+    @Test
+    void unDueloConMenosPartidasQueElMinimoNoSeCitaAunqueLaDiferenciaSeaGrande() {
+        duelo(2, 9, 49, 40); // 49 < partidas-minimas-duelo (50), aunque el winrate (82%) se aleje mucho del meta
+
+        String motivo = de(sugerir(1, directos(9), List.of()), 2).motivo();
+
+        assertThat(motivo).doesNotContain("tendencia:").contains("sin ventaja de duelo relevante");
+    }
+
+    @Test
+    void unDueloConSuficientesPartidasPeroCercaDelMetaNoSeCita() {
+        double metaPos = de(sugerir(1, Map.of(), List.of()), 2).puntaje();
+        duelo(2, 9, 100, (int) Math.round(metaPos * 100)); // prácticamente en el meta: no supera ventaja-minima-duelo
+
+        String motivo = de(sugerir(1, directos(9), List.of()), 2).motivo();
+
+        assertThat(motivo).doesNotContain("tendencia:").contains("sin ventaja de duelo relevante");
+    }
+
+    @Test
+    void unaTendenciaNegativaSeCitaConSignoMenos() {
+        double metaPos = de(sugerir(1, Map.of(), List.of()), 2).puntaje();
+        duelo(2, 9, 100, 40); // pierde contra el enemigo, pero no tanto como para salir del top 3
+
+        String motivo = de(sugerir(1, directos(9), List.of()), 2).motivo();
+
+        double estimacion = (40 + 100 * metaPos) / (100 + 100);
+        String tendencia = String.format(Locale.ROOT, "tendencia: %+.0f%% contra Enemigo (100 partidas)",
+                (estimacion - metaPos) * 100);
+        assertThat(motivo).contains(tendencia).contains("tendencia: -");
+    }
+
+    @Test
+    void losUmbralesDeTendenciaSonConfigurables() {
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 5, 100, 1.96, 0.25, 20, 5, 0.30, 30, 1.0, 0.5, 200, 0.5, null, null, null);
+        MotorSugerenciasPuntaje otro = new MotorSugerenciasPuntaje(servicio, perfiles, props);
+        duelo(2, 9, 10, 9); // 10 partidas (>= 5, el nuevo mínimo) pero la ventaja mínima (0.5) es enorme: no se cita
+
+        String motivo = de(otro.sugerir(1, directos(9), List.of()).sugerencias(), 2).motivo();
+
+        assertThat(motivo).doesNotContain("tendencia:");
+    }
+
+    // --- Meta por posición (fuerza-prior-linea) ---
+
+    @Test
+    void elMetaPorPosicionSeContraeHaciaElMetaGlobalConFuerzaPriorLinea() {
+        publicar(Map.of(1, Map.of(), 2, Map.of(2, 400L), 3, Map.of()),
+                Map.of(2, Map.of(2, 300L)));
+        double metaGlobalBeta = Wilson.limiteInferior(heroes.get(2).victorias(), heroes.get(2).partidas(), 1.96);
+        double esperado = (300 + 200 * metaGlobalBeta) / (400 + 200); // fuerza-prior-linea por defecto: 200
+
+        double metaPosBeta = de(sugerir(2, Map.of(), List.of()), 2).puntaje();
+
+        assertThat(metaPosBeta).isCloseTo(esperado, within(1e-9));
+    }
+
+    @Test
+    void sinPartidasEnLaLineaElMetaPorPosicionEsExactamenteElMetaGlobal() {
+        publicar(Map.of()); // sin datos de línea en absoluto: la posición 1 cae a las etiquetas de rol
+
+        double metaPos = de(sugerir(1, Map.of(), List.of()), 1).puntaje();
+        double metaGlobal = Wilson.limiteInferior(heroes.get(1).victorias(), heroes.get(1).partidas(), 1.96);
+
+        assertThat(metaPos).isCloseTo(metaGlobal, within(1e-12));
+    }
+
+    @Test
+    void laFuerzaDelPriorDeLineaEsConfigurable() {
+        publicar(Map.of(1, Map.of(), 2, Map.of(2, 400L), 3, Map.of()),
+                Map.of(2, Map.of(2, 300L)));
+        double metaGlobalBeta = Wilson.limiteInferior(heroes.get(2).victorias(), heroes.get(2).partidas(), 1.96);
+        SugerenciasProperties props = new SugerenciasProperties(0.4, 0.6, 50, 100, 1.96, 0.25, 20, 5, 0.30, 30, 1.0, 0.5, 50, 0.03, null, null, null);
+        MotorSugerenciasPuntaje otro = new MotorSugerenciasPuntaje(servicio, perfiles, props);
+        double esperado = (300 + 50 * metaGlobalBeta) / (400 + 50);
+
+        double puntaje = de(otro.sugerir(2, Map.of(), List.of()).sugerencias(), 2).puntaje();
+
+        assertThat(puntaje).isCloseTo(esperado, within(1e-9));
+    }
+
+    @Test
+    void elMotivoCitaLaLineaSoloEnLasPosicionesConDatosDeEllaYNuncaEnLa4y5() {
+        publicar(Map.of(1, Map.of(), 2, Map.of(2, 400L), 3, Map.of(3, 400L)),
+                Map.of(2, Map.of(2, 300L), 3, Map.of(3, 320L)));
+
+        String motivoMid = de(sugerir(2, Map.of(), List.of()), 2).motivo();
+        String motivoOfflane = de(sugerir(3, Map.of(), List.of()), 3).motivo();
+        String motivoSoporte = de(sugerir(5, Map.of(), List.of()), 5).motivo();
+
+        assertThat(motivoMid).contains("de winrate como mid");
+        assertThat(motivoOfflane).contains("de winrate como offlane");
+        // Las posiciones 4-5 no tienen línea mapeada, así que siempre usan el meta global
+        assertThat(motivoSoporte).contains("en el meta").doesNotContain("de winrate como");
+    }
+
+    @Test
+    void devuelveElRankingCompletoParaQueElServicioPuedaRellenarTrasQuitarRepetidos() {
+        // Posición 1: los cinco carries son candidatos; el recorte a MAX_SUGERENCIAS lo hace ServicioSugerencias
+        ResultadoSugerencias r = motor.sugerir(1, Map.of(), List.of());
+
+        assertThat(r.sugerencias()).extracting(Sugerencia::heroId).containsExactly(1, 2, 4, 9, 3);
     }
 }

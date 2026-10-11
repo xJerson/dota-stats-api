@@ -24,19 +24,27 @@ import java.util.stream.Collectors;
 /**
  * Motor de sugerencias basado en datos de meta de OpenDota.
  * <p>
- * Puntaje = (pesoMeta * meta + pesoContra * counter) / (pesoMeta + pesoContra), donde:
+ * Puntaje = (pesoMeta * metaPosicion + pesoContra * counter) / (pesoMeta + pesoContra), donde:
  * <ul>
- *   <li>meta: límite inferior de Wilson del winrate del héroe en los brackets cargados;</li>
+ *   <li>metaPosicion: meta del héroe AJUSTADO por posición. Se parte del meta global (límite inferior de Wilson del
+ *       winrate en los brackets cargados) y, si {@code miRol} mapea a una línea de {@code /scenarios/laneRoles}
+ *       (posiciones 1-3; ver {@link #lineaDe(int)}) y hay datos de esa línea para el héroe, se contrae hacia el
+ *       winrate real del héroe EN esa línea: {@code (victoriasLinea + fuerzaPriorLinea*metaGlobal) / (partidasLinea
+ *       + fuerzaPriorLinea)}. Sin datos de línea (o en las posiciones 4-5, sin línea mapeada) vale exactamente el
+ *       meta global.</li>
  *   <li>counter: promedio PONDERADO, sobre todos los enemigos elegidos, de la estimación del winrate del candidato
- *       contra cada uno. La estimación contrae el duelo hacia el meta del candidato:
- *       {@code (victorias + fuerzaPrior * meta) / (partidas + fuerzaPrior)}. Sin datos del duelo (o si la consulta
- *       de ese enemigo falló) vale exactamente el meta, o sea una contribución neutra: ni ventaja ni castigo
- *       frente a quien sí tiene datos, y con muestras pequeñas el duelo apenas se aleja del meta.
+ *       contra cada uno. La estimación contrae el duelo hacia el metaPosicion del candidato:
+ *       {@code (victorias + fuerzaPrior * metaPosicion) / (partidas + fuerzaPrior)}. Sin datos del duelo (o si la
+ *       consulta de ese enemigo falló) vale exactamente el metaPosicion, o sea una contribución neutra: ni ventaja
+ *       ni castigo frente a quien sí tiene datos, y con muestras pequeñas el duelo apenas se aleja del metaPosicion.
  *       El peso de cada enemigo depende del slot en que se puso: {@code pesoOponenteDirecto} si juega contra la
  *       línea de {@code miRol} (ver {@link #oponentesDirectos(int)}) y {@code pesoOtrosEnemigos} si no.</li>
  * </ul>
- * El motivo es honesto con la muestra: nombra a los oponentes directos sin datos suficientes del duelo y, si ningún
- * enemigo tiene datos suficientes, avisa de que el ranking sale solo del meta.
+ * El motivo es honesto con la muestra: solo cita un duelo como tendencia (positiva o negativa) cuando tiene al
+ * menos {@code partidasMinimasDuelo} partidas Y su estimación se aleja del metaPosicion al menos
+ * {@code ventajaMinimaDuelo}; nunca dice "fuerte contra". Nombra además a los oponentes directos sin datos
+ * suficientes y, si ningún enemigo aporta una tendencia citable, avisa de que el ranking sale solo del meta, sin
+ * ventaja de duelo relevante.
  * Los matchups de cada enemigo se piden de forma perezosa a {@link DatosMetaService}. Las sinergias con
  * aliados no se consideran todavía.
  * <p>
@@ -57,18 +65,19 @@ import java.util.stream.Collectors;
  * Personalización opcional (petición con cuenta de jugador): se añade un componente personal con peso
  * {@code w = pesoPersonal} y el resto se reescala por {@code (1 - w)}, de modo que los pesos siguen sumando 1:
  * {@code puntaje = (1 - w) * base + w * personal}. El componente personal contrae el historial del jugador con el
- * héroe hacia el meta del candidato: {@code (victorias + K * meta) / (partidas + K)} con
- * {@code K = fuerzaPriorPersonal}. Un héroe nunca jugado vale exactamente el meta (neutro, sin castigo).
+ * héroe hacia el metaPosicion del candidato: {@code (victorias + K * metaPosicion) / (partidas + K)} con
+ * {@code K = fuerzaPriorPersonal}. Un héroe nunca jugado vale exactamente el metaPosicion (neutro, sin castigo).
  */
 @Component
 public class MotorSugerenciasPuntaje implements MotorSugerencias {
 
     private static final Logger log = LoggerFactory.getLogger(MotorSugerenciasPuntaje.class);
 
-    private static final int MAX_SUGERENCIAS = 3;
-    private static final int MAX_COUNTERS_EN_MOTIVO = 2;
-    /** Winrate crudo del duelo desde el cual se considera que el candidato "es fuerte contra" el enemigo. */
-    private static final double UMBRAL_COUNTER_FUERTE = 0.52;
+    /** Sugerencias por fila; reutilizada por {@code ServicioSugerencias} para recortar cada fila tras el deduplicado. */
+    public static final int MAX_SUGERENCIAS = 3;
+    private static final int MAX_TENDENCIAS_EN_MOTIVO = 2;
+    /** Nombre de la línea (lane_role de OpenDota) tal como se cita en el motivo, por posición núcleo (1-3). */
+    private static final Map<Integer, String> ETIQUETA_LINEA = Map.of(1, "carry", 2, "mid", 3, "offlane");
 
     private final DatosMetaService servicio;
     private final PerfilJugadorService perfiles;
@@ -112,43 +121,22 @@ public class MotorSugerenciasPuntaje implements MotorSugerencias {
 
         Set<Integer> elegidos = new HashSet<>(idsEnemigos);
         elegidos.addAll(aliados);
-        List<String> rolesValidos = props.roles().getOrDefault(miRol, List.of());
-        Set<String> lista = listaCurada(miRol);
-        Integer linea = lineaDe(miRol);
-        boolean porLinea = lista.isEmpty() && linea != null && datos.partidasPorLinea().getOrDefault(linea, Map.of()).size() > 0;
-        if (lista.isEmpty() && linea != null && !porLinea) {
+        CandidatosPorPosicion.Resultado candidatos = CandidatosPorPosicion.calcular(miRol, datos, props);
+        if (candidatos.sinDatosDeLinea()) {
             advertencias.add("No hay datos de línea de OpenDota; las sugerencias de la posición " + miRol
                     + " se filtraron solo por las etiquetas de rol de los héroes, así que pueden incluir héroes "
                     + "que no suelen jugarse ahí.");
         }
-        Set<String> excluidos = props.excluirPosicion().getOrDefault(miRol, List.of()).stream()
-                .map(n -> n.trim().toLowerCase(Locale.ROOT))
-                .collect(Collectors.toSet());
 
         RendimientoJugador historial = personal;
-        List<Sugerencia> sugerencias = datos.heroes().values().stream()
+        List<Sugerencia> sugerencias = candidatos.candidatos().stream()
                 .filter(h -> !elegidos.contains(h.id()))
-                .filter(h -> !excluidos.contains(h.nombre().toLowerCase(Locale.ROOT)))
-                .filter(h -> !lista.isEmpty()
-                        ? lista.contains(HeroeAliasResolver.normalizar(h.nombre()))
-                        : porLinea
-                        ? juegaLaLinea(h.id(), linea, datos) && cumpleEtiquetaDeNucleo(h, miRol, rolesValidos)
-                        : rolesValidos.isEmpty() || h.roles().stream().anyMatch(rolesValidos::contains))
                 .map(h -> puntuar(h, miRol, datos, enemigos, matchups, historial))
                 .sorted(Comparator.comparingDouble(Sugerencia::puntaje).reversed()
                         .thenComparingInt(Sugerencia::heroId))
-                .limit(MAX_SUGERENCIAS)
-                .toList();
+                .toList(); // ranking completo: ServicioSugerencias recorta tras repartir los repetidos
         advertencias.addAll(advertencias(datos, idsEnemigos, matchups));
         return new ResultadoSugerencias(sugerencias, advertencias);
-    }
-
-    /** Nombres normalizados (sin acentos ni mayúsculas) de la lista curada de la posición; vacío si no tiene. */
-    private Set<String> listaCurada(int posicion) {
-        return props.heroesPosicion().getOrDefault(posicion, List.of()).stream()
-                .map(HeroeAliasResolver::normalizar)
-                .filter(n -> !n.isEmpty())
-                .collect(Collectors.toSet());
     }
 
     /**
@@ -183,7 +171,7 @@ public class MotorSugerenciasPuntaje implements MotorSugerencias {
      * Slots del equipo enemigo que juegan contra la línea de {@code posicion} (líneas estándar: la segura
      * -posiciones 1 y 5- enfrenta a la ofensiva rival -3 y 4-, y la central contra la central).
      */
-    static Set<Integer> oponentesDirectos(int posicion) {
+    public static Set<Integer> oponentesDirectos(int posicion) {
         return switch (posicion) {
             case 1, 5 -> Set.of(3, 4);
             case 2 -> Set.of(2);
@@ -193,62 +181,68 @@ public class MotorSugerenciasPuntaje implements MotorSugerencias {
     }
 
     /** lane_role de OpenDota que corresponde a una posición núcleo (1-3); null para las posiciones 4-5. */
-    private static Integer lineaDe(int posicion) {
+    static Integer lineaDe(int posicion) {
         return posicion >= 1 && posicion <= 3 ? posicion : null;
     }
 
     /**
-     * La línea segura la juegan también los soportes (la línea es de la lane, no de la posición), así que la posición 1
-     * exige además una etiqueta de núcleo (por defecto {@code Carry}). En la central y la ofensiva solo cuenta la línea.
+     * Meta del héroe ajustado por posición: contrae sus partidas en la línea de {@code miRol} (si hay mapeo y
+     * datos) hacia el meta global. Sin datos de línea equivale exactamente a {@code metaGlobal}. Público y estático
+     * para que otros analizadores de draft (por ejemplo {@code AnalizadorHabilidad}, al desempatar candidatos)
+     * reutilicen exactamente este cálculo en vez de repetirlo.
      */
-    private static boolean cumpleEtiquetaDeNucleo(HeroeMeta h, int posicion, List<String> rolesValidos) {
-        return posicion != 1 || rolesValidos.isEmpty() || h.roles().stream().anyMatch(rolesValidos::contains);
-    }
-
-    private boolean juegaLaLinea(int heroId, int linea, DatosMeta datos) {
-        long total = 0;
-        for (int l = 1; l <= 3; l++) {
-            total += datos.partidasPorLinea().getOrDefault(l, Map.of()).getOrDefault(heroId, 0L);
+    public static double metaPosicion(HeroeMeta heroe, int miRol, DatosMeta datos, double metaGlobal,
+                                      SugerenciasProperties props) {
+        Integer linea = lineaDe(miRol);
+        if (linea == null) {
+            return metaGlobal;
         }
-        long enLinea = datos.partidasPorLinea().getOrDefault(linea, Map.of()).getOrDefault(heroId, 0L);
-        return total > 0 && enLinea >= props.minPartidasLinea() && (double) enLinea / total >= props.umbralLinea();
+        long partidasLinea = datos.partidasPorLinea().getOrDefault(linea, Map.of()).getOrDefault(heroe.id(), 0L);
+        long victoriasLinea = datos.victoriasPorLinea().getOrDefault(linea, Map.of()).getOrDefault(heroe.id(), 0L);
+        double k = props.fuerzaPriorLinea();
+        return partidasLinea + k <= 0 ? metaGlobal : (victoriasLinea + k * metaGlobal) / (partidasLinea + k);
     }
 
     private Sugerencia puntuar(HeroeMeta heroe, int miRol, DatosMeta datos, Map<Integer, Integer> enemigos,
                                MatchupsEnemigos matchups, RendimientoJugador historial) {
-        double meta = Wilson.limiteInferior(heroe.victorias(), heroe.partidas(), props.z());
+        double metaGlobal = Wilson.limiteInferior(heroe.victorias(), heroe.partidas(), props.z());
+        double metaPosicion = metaPosicion(heroe, miRol, datos, metaGlobal, props);
+        Integer linea = lineaDe(miRol);
+        long partidasLinea = linea == null ? 0
+                : datos.partidasPorLinea().getOrDefault(linea, Map.of()).getOrDefault(heroe.id(), 0L);
+        long victoriasLinea = linea == null ? 0
+                : datos.victoriasPorLinea().getOrDefault(linea, Map.of()).getOrDefault(heroe.id(), 0L);
         Set<Integer> directos = oponentesDirectos(miRol);
 
         double sumaPonderada = 0;
         double sumaPesos = 0;
-        boolean hayDatosSuficientes = false;
-        List<Counter> fuertes = new ArrayList<>();
+        List<Tendencia> tendencias = new ArrayList<>();
         List<String> sinDatos = new ArrayList<>();
         for (Map.Entry<Integer, Integer> e : enemigos.entrySet()) {
             boolean directo = directos.contains(e.getKey());
             double peso = directo ? props.pesoOponenteDirecto() : props.pesoOtrosEnemigos();
             HeroeMeta enemigo = datos.heroes().get(e.getValue());
             Duelo d = matchups.duelo(heroe.id(), e.getValue());
-            boolean suficiente = d != null && d.partidas() >= props.minPartidasDuelo();
+            boolean conMuestra = d != null && d.partidas() >= props.partidasMinimasDuelo();
             double estimacion = d == null || d.partidas() + props.fuerzaPrior() <= 0
-                    ? meta
-                    : (d.victorias() + props.fuerzaPrior() * meta) / (d.partidas() + props.fuerzaPrior());
+                    ? metaPosicion
+                    : (d.victorias() + props.fuerzaPrior() * metaPosicion) / (d.partidas() + props.fuerzaPrior());
             sumaPonderada += peso * estimacion;
             sumaPesos += peso;
-            if (suficiente) {
-                hayDatosSuficientes = true;
-                if (enemigo != null && d.winrate() >= UMBRAL_COUNTER_FUERTE) {
-                    fuertes.add(new Counter(enemigo.nombre(), d.winrate()));
+            if (conMuestra) {
+                double diferencia = estimacion - metaPosicion;
+                if (enemigo != null && Math.abs(diferencia) >= props.ventajaMinimaDuelo()) {
+                    tendencias.add(new Tendencia(enemigo.nombre(), diferencia, d.partidas()));
                 }
             } else if (directo && enemigo != null) {
                 sinDatos.add(enemigo.nombre());
             }
         }
 
-        double puntaje = meta;
+        double puntaje = metaPosicion;
         if (sumaPesos > 0) {
             double counter = sumaPonderada / sumaPesos;
-            puntaje = (props.pesoMeta() * meta + props.pesoContra() * counter)
+            puntaje = (props.pesoMeta() * metaPosicion + props.pesoContra() * counter)
                     / (props.pesoMeta() + props.pesoContra());
         }
 
@@ -258,12 +252,14 @@ public class MotorSugerenciasPuntaje implements MotorSugerencias {
             double w = Math.max(0.0, Math.min(1.0, props.pesoPersonal()));
             double k = props.fuerzaPriorPersonal();
             double personal = propio == null || propio.partidas() + k <= 0
-                    ? meta
-                    : (propio.victorias() + k * meta) / (propio.partidas() + k);
+                    ? metaPosicion
+                    : (propio.victorias() + k * metaPosicion) / (propio.partidas() + k);
             puntaje = (1 - w) * puntaje + w * personal;
         }
-        boolean soloMeta = !enemigos.isEmpty() && !hayDatosSuficientes;
-        return new Sugerencia(heroe.id(), heroe.nombre(), motivo(heroe, fuertes, sinDatos, soloMeta, propio), puntaje);
+        boolean sinTendenciaRelevante = !enemigos.isEmpty() && tendencias.isEmpty();
+        String motivo = motivo(heroe, linea, partidasLinea, victoriasLinea, tendencias, sinDatos,
+                sinTendenciaRelevante, propio);
+        return new Sugerencia(heroe.id(), heroe.nombre(), motivo, puntaje);
     }
 
     private static List<String> advertencias(DatosMeta datos, List<Integer> enemigos, MatchupsEnemigos matchups) {
@@ -279,28 +275,30 @@ public class MotorSugerenciasPuntaje implements MotorSugerencias {
                 + " se usó solo el meta.");
     }
 
-    private String motivo(HeroeMeta heroe, List<Counter> fuertes, List<String> sinDatos, boolean soloMeta,
+    private String motivo(HeroeMeta heroe, Integer linea, long partidasLinea, long victoriasLinea,
+                          List<Tendencia> tendencias, List<String> sinDatos, boolean sinTendenciaRelevante,
                           Duelo propio) {
-        StringBuilder sb = new StringBuilder(String.format(Locale.ROOT, "%.1f%% en el meta", heroe.winrate() * 100));
-        List<Counter> mejores = fuertes.stream()
-                .sorted(Comparator.comparingDouble(Counter::winrate).reversed())
-                .limit(MAX_COUNTERS_EN_MOTIVO)
-                .toList();
-        if (!mejores.isEmpty()) {
-            sb.append("; fuerte contra ");
-            for (int i = 0; i < mejores.size(); i++) {
-                if (i > 0) {
-                    sb.append(" y ");
-                }
-                Counter c = mejores.get(i);
-                sb.append(String.format(Locale.ROOT, "%s (%.0f%%)", c.nombre(), c.winrate() * 100));
-            }
+        StringBuilder sb = new StringBuilder();
+        if (linea != null && partidasLinea > 0) {
+            double winrateLinea = (double) victoriasLinea / partidasLinea;
+            sb.append(String.format(Locale.ROOT, "%.1f%% de winrate como %s", winrateLinea * 100,
+                    ETIQUETA_LINEA.get(linea)));
+        } else {
+            sb.append(String.format(Locale.ROOT, "%.1f%% en el meta", heroe.winrate() * 100));
         }
-        if (soloMeta) {
-            sb.append("; ranking según el meta, sin datos de duelo suficientes");
+        List<Tendencia> mejores = tendencias.stream()
+                .sorted(Comparator.comparingDouble((Tendencia t) -> Math.abs(t.diferencia())).reversed())
+                .limit(MAX_TENDENCIAS_EN_MOTIVO)
+                .toList();
+        for (Tendencia t : mejores) {
+            sb.append(String.format(Locale.ROOT, "; tendencia: %+.0f%% contra %s (%d partidas)",
+                    t.diferencia() * 100, t.nombre(), t.partidas()));
+        }
+        if (sinTendenciaRelevante) {
+            sb.append("; ranking según el meta, sin ventaja de duelo relevante");
         } else if (!sinDatos.isEmpty()) {
             sb.append("; sin datos suficientes contra ")
-                    .append(String.join(" y ", sinDatos.stream().limit(MAX_COUNTERS_EN_MOTIVO).toList()));
+                    .append(String.join(" y ", sinDatos.stream().limit(MAX_TENDENCIAS_EN_MOTIVO).toList()));
         }
         if (propio != null && propio.partidas() >= props.minPartidasPersonal()) {
             sb.append(String.format(Locale.ROOT, "; tu winrate: %.0f%% en %d %s", propio.winrate() * 100,
@@ -309,6 +307,7 @@ public class MotorSugerenciasPuntaje implements MotorSugerencias {
         return sb.toString();
     }
 
-    private record Counter(String nombre, double winrate) {
+    /** Un duelo citable en el motivo: su estimación contraída se aleja {@code diferencia} (con signo) del metaPosicion. */
+    private record Tendencia(String nombre, double diferencia, int partidas) {
     }
 }

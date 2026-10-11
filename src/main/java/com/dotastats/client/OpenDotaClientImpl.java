@@ -27,6 +27,9 @@ public class OpenDotaClientImpl implements OpenDotaClient {
 
     private final RestClient restClient;
     private volatile List<Map<String, Object>> catalogoHeroes;
+    private volatile Map<String, Object> abilidades;
+    private volatile Map<String, Object> habilidadesPorHeroe;
+    private volatile Map<String, Object> heroesConstantes;
 
     public OpenDotaClientImpl(RestClient openDotaRestClient) {
         this.restClient = openDotaRestClient;
@@ -141,6 +144,78 @@ public class OpenDotaClientImpl implements OpenDotaClient {
                 .max(Comparator.comparingInt(p -> ((Number) p.get("id")).intValue()))
                 .orElseThrow();
         return new Parche(((Number) ultimo.get("id")).intValue(), String.valueOf(ultimo.get("name")));
+    }
+
+    /**
+     * /constants/abilities, cacheada en memoria sin expiración (cambia solo con el parche, igual que el
+     * catálogo de héroes): un fallo no se guarda, para reintentar en la siguiente llamada.
+     */
+    @Override
+    public Map<String, Object> obtenerAbilidades() {
+        Map<String, Object> guardado = abilidades;
+        if (guardado != null) {
+            return guardado;
+        }
+        synchronized (this) {
+            if (abilidades != null) {
+                return abilidades;
+            }
+            Map<String, Object> obtenidas = ejecutarSinJugador(() -> restClient.get()
+                    .uri("/constants/abilities")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<Map<String, Object>>() {
+                    }));
+            abilidades = obtenidas;
+            return obtenidas;
+        }
+    }
+
+    /**
+     * /constants/hero_abilities, cacheada en memoria sin expiración igual que {@link #obtenerAbilidades()}
+     * (ambas cambian solo con el parche): un fallo no se guarda, para reintentar en la siguiente llamada.
+     */
+    @Override
+    public Map<String, Object> obtenerHabilidadesPorHeroe() {
+        Map<String, Object> guardado = habilidadesPorHeroe;
+        if (guardado != null) {
+            return guardado;
+        }
+        synchronized (this) {
+            if (habilidadesPorHeroe != null) {
+                return habilidadesPorHeroe;
+            }
+            Map<String, Object> obtenidas = ejecutarSinJugador(() -> restClient.get()
+                    .uri("/constants/hero_abilities")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<Map<String, Object>>() {
+                    }));
+            habilidadesPorHeroe = obtenidas;
+            return obtenidas;
+        }
+    }
+
+    /**
+     * /constants/heroes, cacheada en memoria sin expiración igual que {@link #obtenerAbilidades()}: un fallo no se
+     * guarda, para reintentar en la siguiente llamada.
+     */
+    @Override
+    public Map<String, Object> obtenerHeroesConstantes() {
+        Map<String, Object> guardado = heroesConstantes;
+        if (guardado != null) {
+            return guardado;
+        }
+        synchronized (this) {
+            if (heroesConstantes != null) {
+                return heroesConstantes;
+            }
+            Map<String, Object> obtenidos = ejecutarSinJugador(() -> restClient.get()
+                    .uri("/constants/heroes")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<Map<String, Object>>() {
+                    }));
+            heroesConstantes = obtenidos;
+            return obtenidos;
+        }
     }
 
     private <T> T ejecutar(long accountId, Supplier<T> llamada) {
