@@ -241,5 +241,13 @@
         {"habilidad": "invoker_deafening_blast", "efecto": "DESARME", "claveDuracion": "disarm_duration", "esUlti": false, "confianza": "baja"}
       ]
     }
+  ],
+  "movimientoNoEscape": [
+    "spirit_breaker_charge_of_darkness",
+    "spirit_breaker_nether_strike",
+    "techies_suicide",
+    "phoenix_sun_ray_toggle_move",
+    "lone_druid_spirit_bear_return",
+    "necrolyte_death_seeker"
   ]
 }

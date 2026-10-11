@@ -4,6 +4,7 @@ import com.dotastats.exception.JugadorNoEncontradoException;
 import com.dotastats.exception.OpenDotaNoDisponibleException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
@@ -31,7 +32,7 @@ public class OpenDotaClientImpl implements OpenDotaClient {
     private volatile Map<String, Object> habilidadesPorHeroe;
     private volatile Map<String, Object> heroesConstantes;
 
-    public OpenDotaClientImpl(RestClient openDotaRestClient) {
+    public OpenDotaClientImpl(@Qualifier("openDotaRestClient") RestClient openDotaRestClient) {
         this.restClient = openDotaRestClient;
     }
 

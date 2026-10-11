@@ -4,6 +4,8 @@ import com.dotastats.client.OpenDotaClient;
 import com.dotastats.client.Parche;
 import com.dotastats.exception.DatosNoCargadosException;
 import com.dotastats.exception.OpenDotaNoDisponibleException;
+import com.dotastats.juego.ArchivosJuegoClient;
+import com.dotastats.juego.IndicadoresHabilidad;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,9 +62,12 @@ public class DatosMetaService {
     static final int MAX_DESCARGAS_PARALELAS = 5;
 
     private final OpenDotaClient client;
+    private final ArchivosJuegoClient archivosJuego;
     private final MetaProperties props;
     private final CacheDisco cacheDisco;
     private final Executor ejecutor;
+    /** Hilo propio del calentamiento de los archivos del juego, para no frenar la carga base ni un refresco. */
+    private final Executor ejecutorJuego;
     private final Executor ejecutorMatchups = crearPoolMatchups();
     private final Clock reloj;
 
@@ -71,12 +76,17 @@ public class DatosMetaService {
     private final Map<Integer, CompletableFuture<Map<Integer, Duelo>>> enVuelo = new ConcurrentHashMap<>();
     /** Protege el cambio de base: la generación sube cada vez que se vacía la caché y evita que un fetch viejo la ensucie. */
     private final Object cerrojo = new Object();
+    /** Una sola descarga de las constantes de OpenDota a la vez. */
+    private final Object cerrojoHabilidades = new Object();
+    private final AtomicBoolean calentando = new AtomicBoolean(false);
+    private volatile long versionIndicadores;
     private int generacion;
 
     private volatile DatosMeta datos;
     private volatile Map<String, Object> abilidades;
     private volatile Map<String, Object> habilidadesPorHeroe;
     private volatile Map<Integer, Integer> rangoAtaquePorHeroe;
+    private volatile Map<String, Map<String, IndicadoresHabilidad>> indicadoresPorHeroe;
     private volatile boolean cacheDiscoUsada;
     private volatile String ultimoError;
     private volatile Parche parcheVivo;
@@ -84,20 +94,39 @@ public class DatosMetaService {
     private volatile Instant noReintentarHasta;
 
     @Autowired
-    public DatosMetaService(OpenDotaClient client, MetaProperties props, CacheDisco cacheDisco) {
+    public DatosMetaService(OpenDotaClient client, MetaProperties props, CacheDisco cacheDisco,
+                            ArchivosJuegoClient archivosJuego) {
         this(client, props, cacheDisco, Executors.newSingleThreadExecutor(r -> {
             Thread hilo = new Thread(r, "carga-meta");
             hilo.setDaemon(true);
             return hilo;
-        }), Clock.systemUTC());
+        }), Clock.systemUTC(), archivosJuego, Executors.newSingleThreadExecutor(r -> {
+            Thread hilo = new Thread(r, "archivos-juego-calentamiento");
+            hilo.setDaemon(true);
+            return hilo;
+        }));
     }
 
+    /** Sin archivos del juego (pruebas que no los necesitan): {@link ArchivosJuegoClient#NINGUNO}. */
     DatosMetaService(OpenDotaClient client, MetaProperties props, CacheDisco cacheDisco, Executor ejecutor, Clock reloj) {
+        this(client, props, cacheDisco, ejecutor, reloj, ArchivosJuegoClient.NINGUNO, r -> { });
+    }
+
+    /** El calentamiento corre en el mismo ejecutor que la carga (pruebas con ejecutor en línea). */
+    DatosMetaService(OpenDotaClient client, MetaProperties props, CacheDisco cacheDisco, Executor ejecutor, Clock reloj,
+                     ArchivosJuegoClient archivosJuego) {
+        this(client, props, cacheDisco, ejecutor, reloj, archivosJuego, ejecutor);
+    }
+
+    DatosMetaService(OpenDotaClient client, MetaProperties props, CacheDisco cacheDisco, Executor ejecutor, Clock reloj,
+                     ArchivosJuegoClient archivosJuego, Executor ejecutorJuego) {
+        this.ejecutorJuego = ejecutorJuego;
         this.client = client;
         this.props = props;
         this.cacheDisco = cacheDisco;
         this.ejecutor = ejecutor;
         this.reloj = reloj;
+        this.archivosJuego = archivosJuego;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -207,7 +236,11 @@ public class DatosMetaService {
      * (ver {@code CatalogoHabilidades}). Se piden a OpenDota solo la primera vez que se necesitan (NO al
      * arrancar), se cachean en memoria y disco junto al resto del snapshot, y se descartan cuando cambia el
      * parche (igual que los matchups: ver {@link #recargarDesdeRed()}). Un fallo no se cachea, para reintentar
-     * en la siguiente llamada.
+     * en la siguiente llamada. La parte de OpenDota es de una sola descarga a la vez (un cerrojo propio).
+     * <p>
+     * Los indicadores de los archivos del juego (GitHub) NUNCA se piden aquí: los trae el calentamiento que
+     * dispara la construcción del snapshot ({@link #calentarIndicadores()}); esta llamada devuelve los que haya en
+     * ese momento (posiblemente ninguno o solo parte) y {@link #versionIndicadoresJuego()} avisa cuando cambian.
      *
      * @throws DatosNoCargadosException si todavía no hay datos base
      */
@@ -215,50 +248,171 @@ public class DatosMetaService {
         if (datos == null) {
             throw new DatosNoCargadosException();
         }
-        Map<String, Object> actualAbilidades;
-        Map<String, Object> actualHabilidadesPorHeroe;
-        Map<Integer, Integer> actualRango;
-        synchronized (cerrojo) {
-            actualAbilidades = abilidades;
-            actualHabilidadesPorHeroe = habilidadesPorHeroe;
-            actualRango = rangoAtaquePorHeroe;
+        DatosHabilidad listo = leerHabilidadesSiEstanCompletas();
+        if (listo != null) {
+            return listo;
         }
-        if (actualAbilidades != null && actualHabilidadesPorHeroe != null && actualRango != null) {
-            return new DatosHabilidad(actualAbilidades, actualHabilidadesPorHeroe, actualRango);
-        }
-        boolean pidioAlgo = false;
-        if (actualAbilidades == null || actualHabilidadesPorHeroe == null) {
-            Map<String, Object> nuevaAbilidades = client.obtenerAbilidades();
-            Map<String, Object> nuevasHabilidadesPorHeroe = client.obtenerHabilidadesPorHeroe();
-            if (nuevaAbilidades == null || nuevaAbilidades.isEmpty()
-                    || nuevasHabilidadesPorHeroe == null || nuevasHabilidadesPorHeroe.isEmpty()) {
-                throw new OpenDotaNoDisponibleException(
-                        "OpenDota no devolvió /constants/abilities o /constants/hero_abilities");
+        synchronized (cerrojoHabilidades) {
+            listo = leerHabilidadesSiEstanCompletas();
+            if (listo != null) {
+                return listo;
             }
+            Map<String, Object> actualAbilidades;
+            Map<String, Object> actualHabilidadesPorHeroe;
+            Map<Integer, Integer> actualRango;
             synchronized (cerrojo) {
-                abilidades = nuevaAbilidades;
-                habilidadesPorHeroe = nuevasHabilidadesPorHeroe;
+                actualAbilidades = abilidades;
+                actualHabilidadesPorHeroe = habilidadesPorHeroe;
+                actualRango = rangoAtaquePorHeroe;
             }
-            actualAbilidades = nuevaAbilidades;
-            actualHabilidadesPorHeroe = nuevasHabilidadesPorHeroe;
-            pidioAlgo = true;
-        }
-        if (actualRango == null) {
-            // El alcance de ataque solo alimenta la herramienta derivada RANGO_MAYOR: si falta no es un error, y
-            // tampoco se cachea (se reintenta en la siguiente llamada, que solo hace la tabla una vez por snapshot).
-            Map<Integer, Integer> nuevoRango = pedirAlcanceDeAtaque();
-            if (!nuevoRango.isEmpty()) {
-                synchronized (cerrojo) {
-                    rangoAtaquePorHeroe = nuevoRango;
+            boolean pidioAlgo = false;
+            if (actualAbilidades == null || actualHabilidadesPorHeroe == null) {
+                Map<String, Object> nuevaAbilidades = client.obtenerAbilidades();
+                Map<String, Object> nuevasHabilidadesPorHeroe = client.obtenerHabilidadesPorHeroe();
+                if (nuevaAbilidades == null || nuevaAbilidades.isEmpty()
+                        || nuevasHabilidadesPorHeroe == null || nuevasHabilidadesPorHeroe.isEmpty()) {
+                    throw new OpenDotaNoDisponibleException(
+                            "OpenDota no devolvió /constants/abilities o /constants/hero_abilities");
                 }
+                synchronized (cerrojo) {
+                    abilidades = nuevaAbilidades;
+                    habilidadesPorHeroe = nuevasHabilidadesPorHeroe;
+                }
+                actualAbilidades = nuevaAbilidades;
+                actualHabilidadesPorHeroe = nuevasHabilidadesPorHeroe;
                 pidioAlgo = true;
             }
-            actualRango = nuevoRango;
+            if (actualRango == null) {
+                // El alcance de ataque solo alimenta la herramienta derivada RANGO_MAYOR: si falta no es un error, y
+                // tampoco se cachea (se reintenta en la siguiente llamada, que solo hace la tabla una vez por snapshot).
+                Map<Integer, Integer> nuevoRango = pedirAlcanceDeAtaque();
+                if (!nuevoRango.isEmpty()) {
+                    synchronized (cerrojo) {
+                        rangoAtaquePorHeroe = nuevoRango;
+                    }
+                    pidioAlgo = true;
+                }
+                actualRango = nuevoRango;
+            }
+            if (pidioAlgo) {
+                persistir();
+            }
+            Map<String, Map<String, IndicadoresHabilidad>> actualIndicadores;
+            synchronized (cerrojo) {
+                actualIndicadores = indicadoresPorHeroe;
+            }
+            return new DatosHabilidad(actualAbilidades, actualHabilidadesPorHeroe, actualRango,
+                    actualIndicadores == null ? Map.of() : actualIndicadores);
         }
-        if (pidioAlgo) {
-            persistir();
+    }
+
+    /** Lo que hay en memoria si OpenDota ya entregó todo (los indicadores del juego no cuentan); null si falta algo. */
+    private DatosHabilidad leerHabilidadesSiEstanCompletas() {
+        synchronized (cerrojo) {
+            if (abilidades == null || habilidadesPorHeroe == null || rangoAtaquePorHeroe == null) {
+                return null;
+            }
+            return new DatosHabilidad(abilidades, habilidadesPorHeroe, rangoAtaquePorHeroe,
+                    indicadoresPorHeroe == null ? Map.of() : indicadoresPorHeroe);
         }
-        return new DatosHabilidad(actualAbilidades, actualHabilidadesPorHeroe, actualRango);
+    }
+
+    /**
+     * Cambia cada vez que cambian los indicadores del juego (llegan, se descartan con el parche...). Es barato (sin
+     * red ni copias): {@code TablaContrarrestos} lo usa para reconstruirse cuando llegan, en vez de quedarse para
+     * siempre con la versión sin ellos.
+     */
+    public long versionIndicadoresJuego() {
+        return versionIndicadores;
+    }
+
+    /**
+     * Calienta los indicadores de los archivos del juego: pide (a GitHub, NUNCA dentro de una petición) los de los
+     * héroes del snapshot que aún no se tienen. Lo dispara la construcción o lectura del snapshot, en su propio hilo.
+     * <ul>
+     *   <li>UNA descarga a la vez: una llamada con otra en curso vuelve sin descargar.</li>
+     *   <li>Un resultado vacío no se guarda ni se da por final. Uno parcial se usa en memoria y se persiste tal cual:
+     *       los héroes que faltan son los del snapshot menos los que hay, así que el siguiente calentamiento (al
+     *       reiniciar o al reconstruir el snapshot) pide solo esos.</li>
+     *   <li>Si el snapshot cambió mientras se descargaba (parche, refresco) el resultado se descarta y se repite
+     *       para el snapshot nuevo.</li>
+     * </ul>
+     */
+    void calentarIndicadores() {
+        if (!calentando.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            for (int intento = 0; intento < 3 && calentarUnaVez(); intento++) {
+                // calentarUnaVez devolvió true: el snapshot cambió a mitad y hay que repetir para el nuevo
+                log.info("El snapshot cambió mientras se descargaban los archivos del juego; se repite para el nuevo");
+            }
+        } finally {
+            calentando.set(false);
+        }
+    }
+
+    /** @return true si hay que repetir porque el snapshot cambió durante la descarga */
+    private boolean calentarUnaVez() {
+        DatosMeta snapshot;
+        int generacionAlPedir;
+        Map<String, Map<String, IndicadoresHabilidad>> actuales;
+        synchronized (cerrojo) {
+            snapshot = datos;
+            generacionAlPedir = generacion;
+            actuales = indicadoresPorHeroe == null ? Map.of() : indicadoresPorHeroe;
+        }
+        if (snapshot == null) {
+            return false;
+        }
+        List<String> faltantes = snapshot.heroes().values().stream()
+                .map(HeroeMeta::nombreInterno)
+                .filter(n -> n != null && !n.isBlank() && !actuales.containsKey(n))
+                .sorted()
+                .toList();
+        if (faltantes.isEmpty()) {
+            return false;
+        }
+        Map<String, Map<String, IndicadoresHabilidad>> obtenidos;
+        try {
+            obtenidos = archivosJuego.obtenerIndicadores(faltantes);
+        } catch (RuntimeException e) {
+            log.warn("No se pudieron obtener los archivos del juego; la fila de jugabilidad usa las interacciones por "
+                    + "palabra clave hasta el próximo calentamiento: {}", e.getMessage());
+            return false;
+        }
+        if (obtenidos == null || obtenidos.isEmpty()) {
+            log.warn("No se obtuvo ningún archivo del juego; la fila de jugabilidad usa las interacciones por palabra "
+                    + "clave hasta el próximo calentamiento");
+            return false;
+        }
+        int total;
+        synchronized (cerrojo) {
+            if (generacion != generacionAlPedir) {
+                return true;
+            }
+            Map<String, Map<String, IndicadoresHabilidad>> unidos = new HashMap<>(actuales);
+            unidos.putAll(obtenidos);
+            indicadoresPorHeroe = Map.copyOf(unidos);
+            versionIndicadores++;
+            total = unidos.size();
+        }
+        persistir();
+        int esperados = actuales.size() + faltantes.size();
+        if (total < esperados) {
+            log.warn("Solo se tienen los archivos del juego de {} de {} héroes; los demás usan las interacciones por "
+                    + "palabra clave hasta el próximo calentamiento", total, esperados);
+        }
+        return false;
+    }
+
+    /** Lanza el calentamiento en su propio hilo; nunca bloquea ni falla a quien lo pide. */
+    private void lanzarCalentamiento() {
+        try {
+            ejecutorJuego.execute(this::calentarIndicadores);
+        } catch (RuntimeException e) {
+            log.warn("No se pudo lanzar la descarga de los archivos del juego: {}", e.getMessage());
+        }
     }
 
     /** heroId -> {@code attack_range} base de {@code /constants/heroes}; vacío si OpenDota no responde o no lo trae. */
@@ -333,11 +487,14 @@ public class DatosMetaService {
                 abilidades = snapshot.abilidades().isEmpty() ? null : snapshot.abilidades();
                 habilidadesPorHeroe = snapshot.habilidadesPorHeroe().isEmpty() ? null : snapshot.habilidadesPorHeroe();
                 rangoAtaquePorHeroe = snapshot.rangoAtaquePorHeroe().isEmpty() ? null : snapshot.rangoAtaquePorHeroe();
+                indicadoresPorHeroe = snapshot.indicadoresPorHeroe().isEmpty() ? null : snapshot.indicadoresPorHeroe();
+                versionIndicadores++;
                 cacheDiscoUsada = true;
             }
             ultimoError = null;
             log.info("Datos de meta leídos de la caché en disco: {} héroes, {} con matchups, parche {}",
                     snapshot.datos().heroes().size(), snapshot.matchups().size(), snapshot.datos().parche().nombre());
+            lanzarCalentamiento(); // pide solo los héroes que la caché no trae (todos si es de antes de esta función)
             return;
         }
         recargarDesdeRed();
@@ -366,6 +523,8 @@ public class DatosMetaService {
                 abilidades = null;
                 habilidadesPorHeroe = null;
                 rangoAtaquePorHeroe = null;
+                indicadoresPorHeroe = null;
+                versionIndicadores++;
                 datos = nuevos;
                 cacheDiscoUsada = false;
             }
@@ -376,6 +535,7 @@ public class DatosMetaService {
             cacheDisco.borrar();
             persistir();
             log.info("Datos de meta cargados de OpenDota: {} héroes, parche {}", heroes.size(), parche.nombre());
+            lanzarCalentamiento(); // en su propio hilo: ni esta carga ni ninguna petición esperan a GitHub
         } catch (RuntimeException e) {
             ultimoError = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             noReintentarHasta = reloj.instant().plus(ttlParche());
@@ -487,7 +647,8 @@ public class DatosMetaService {
             snapshot = new SnapshotMeta(SnapshotMeta.VERSION, datos, Map.copyOf(matchups),
                     abilidades == null ? Map.of() : abilidades,
                     habilidadesPorHeroe == null ? Map.of() : habilidadesPorHeroe,
-                    rangoAtaquePorHeroe == null ? Map.of() : rangoAtaquePorHeroe);
+                    rangoAtaquePorHeroe == null ? Map.of() : rangoAtaquePorHeroe,
+                    indicadoresPorHeroe == null ? Map.of() : indicadoresPorHeroe);
         }
         cacheDisco.guardar(snapshot);
     }

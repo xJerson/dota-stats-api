@@ -1,6 +1,7 @@
 package com.dotastats.meta;
 
 import com.dotastats.client.Parche;
+import com.dotastats.juego.IndicadoresHabilidad;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -72,6 +73,39 @@ class CacheDiscoTest {
 
         assertThat(leido).isPresent();
         assertThat(leido.get().rangoAtaquePorHeroe()).isEmpty();
+        assertThat(leido.get().abilidades()).containsKey("lion_voodoo");
+    }
+
+    @Test
+    void guardaYRecuperaLosIndicadoresDeLosArchivosDelJuego() {
+        CacheDisco cache = new CacheDisco(dir.resolve("meta-cache.json"));
+        SnapshotMeta base = snapshot();
+        IndicadoresHabilidad blink = new IndicadoresHabilidad(true, false, false, false, false, false, true);
+
+        cache.guardar(new SnapshotMeta(SnapshotMeta.VERSION, base.datos(), base.matchups(), base.abilidades(),
+                base.habilidadesPorHeroe(), Map.of(1, 575),
+                Map.of("npc_dota_hero_antimage", Map.of("antimage_blink", blink))));
+
+        assertThat(cache.cargar().orElseThrow().indicadoresPorHeroe())
+                .containsEntry("npc_dota_hero_antimage", Map.of("antimage_blink", blink));
+    }
+
+    @Test
+    void unaCacheSinIndicadoresDelJuegoSeLeeConLosIndicadoresVaciosEnVezDeIgnorarse() throws IOException {
+        Path archivo = dir.resolve("meta-cache.json");
+        CacheDisco cache = new CacheDisco(archivo);
+        cache.guardar(snapshot());
+        // Un archivo escrito antes de esta función no trae la propiedad: se simula quitándola del JSON.
+        com.fasterxml.jackson.databind.node.ObjectNode json =
+                (com.fasterxml.jackson.databind.node.ObjectNode) new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(archivo.toFile());
+        json.remove("indicadoresPorHeroe");
+        Files.writeString(archivo, json.toString());
+
+        Optional<SnapshotMeta> leido = cache.cargar();
+
+        assertThat(leido).isPresent();
+        assertThat(leido.get().indicadoresPorHeroe()).isEmpty();
         assertThat(leido.get().abilidades()).containsKey("lion_voodoo");
     }
 

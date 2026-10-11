@@ -1,0 +1,88 @@
+"DOTAHeroes"
+{
+	"npc_dota_hero_muestra"
+	{
+		"Model"		"models/heroes/lion/lion.vmdl"
+		"Role"			"Support,Disabler,Nuker,Initiator"
+		"HeroID"		"26"
+		"Ability1"		"lion_impale"
+		"Ability2"		"lion_voodoo"
+		"Ability5"		"generic_hidden"
+		"Ability10"		"special_bonus_unique_lion_6"
+		"Facets"
+		{
+			"huskar_bloodbath" 
+			{
+				"Icon"				"area_of_effect"
+			}
+		}
+
+		"Abilities"
+		{
+			// Muestra recortada de archivos reales de d2vpkr (Lion, Storm Spirit, Huskar)
+			"lion_impale"
+			{
+				"AbilityBehavior"				"DOTA_ABILITY_BEHAVIOR_POINT | DOTA_ABILITY_BEHAVIOR_UNIT_TARGET | DOTA_ABILITY_BEHAVIOR_IGNORE_BACKSWING"
+				"SpellDispellableType"			"SPELL_DISPELLABLE_YES_STRONG"
+				"AbilityValues"
+				{
+					"AbilityCooldown"
+					{
+						"value"				"14 12 10 8"
+						"special_bonus_unique_lion_2"	"+600"
+					}
+					"duration"			"1.6 1.9 2.2 2.5"
+				}
+			}
+
+			"lion_voodoo"
+			{
+				// General
+				//-------------------------------------------------------------------------------------------------------------
+				"AbilityBehavior"				"DOTA_ABILITY_BEHAVIOR_UNIT_TARGET"
+				"SpellImmunityType"				"SPELL_IMMUNITY_ENEMIES_NO"
+				"SpellDispellableType"			"SPELL_DISPELLABLE_YES_STRONG"
+				"AbilityCastPoint"				"0 0 0 0"
+			}
+
+			"lion_mana_drain"
+			{
+				"AbilityBehavior"				"DOTA_ABILITY_BEHAVIOR_UNIT_TARGET | DOTA_ABILITY_BEHAVIOR_CHANNELLED | DOTA_ABILITY_BEHAVIOR_IGNORE_BACKSWING"
+				"SpellDispellableType"			"SPELL_DISPELLABLE_NO"
+			}
+
+			"storm_spirit_ball_lightning"
+			{
+				"AbilityBehavior"				"DOTA_ABILITY_BEHAVIOR_POINT | DOTA_ABILITY_BEHAVIOR_ROOT_DISABLES | DOTA_ABILITY_BEHAVIOR_CAN_SELF_CAST | DOTA_ABILITY_BEHAVIOR_OPTIONAL_UNIT_TARGET"
+				"AbilityType"					"ABILITY_TYPE_ULTIMATE"
+				"SpellImmunityType"				"SPELL_IMMUNITY_ENEMIES_NO"
+				"AbilityCastPoint"				"0.3 0.3 0.3"
+			}
+
+			"huskar_berserkers_blood"
+			{
+				"AbilityBehavior"				"DOTA_ABILITY_BEHAVIOR_PASSIVE"
+				"MaxLevel"						"4"
+				"AbilityCastPoint"				"0.0"
+				"IsBreakable"					"1"
+				"HasShardUpgrade"				"1"
+			}
+
+			"generic_hidden"
+			{
+				"AbilityBehavior"				"DOTA_ABILITY_BEHAVIOR_PASSIVE | DOTA_ABILITY_BEHAVIOR_HIDDEN | DOTA_ABILITY_BEHAVIOR_NOT_LEARNABLE"
+			}
+
+			"lion_innate_de_prueba"
+			{
+				"AbilityBehavior"				"DOTA_ABILITY_BEHAVIOR_PASSIVE | DOTA_ABILITY_BEHAVIOR_INNATE_UI"
+			}
+
+			"special_bonus_unique_lion_6"
+			{
+				"AbilityBehavior"				"DOTA_ABILITY_BEHAVIOR_ROOT_DISABLES"
+				"IsBreakable"					"1"
+			}
+		}
+	}
+}

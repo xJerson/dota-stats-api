@@ -391,6 +391,7 @@ class TablaContrarrestosTest {
         }
 
         verify(metaService, times(1)).datosHabilidad();
+        verify(metaService, org.mockito.Mockito.atLeastOnce()).versionIndicadoresJuego();
         verifyNoMoreInteractions(metaService);
     }
 

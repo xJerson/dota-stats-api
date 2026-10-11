@@ -2,20 +2,26 @@ package com.dotastats.analizadores.habilidad.dependencias;
 
 import com.dotastats.analizadores.habilidad.DetectorHabilidades;
 import com.dotastats.analizadores.habilidad.HabilidadProperties;
+import com.dotastats.analizadores.habilidad.JuegoProperties;
+import com.dotastats.juego.IndicadoresHabilidad;
 import com.dotastats.meta.DatosHabilidad;
 import com.dotastats.meta.DatosMeta;
 import com.dotastats.meta.DatosMetaService;
 import com.dotastats.meta.HeroeMeta;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Tabla PRECALCULADA de contrarrestos ("contrarrestar la dependencia, no al héroe"): para cada enemigo con
@@ -52,29 +58,57 @@ public class TablaContrarrestos {
 
     private static final Logger log = LoggerFactory.getLogger(TablaContrarrestos.class);
     private static final String CONFIANZA_ALCANCE = "media";
+    /** Las dependencias derivadas de los archivos del juego (escape, pasivas) son heurística: siempre "baja". */
+    private static final String CONFIANZA_DEPENDENCIA_DERIVADA = "baja";
+    /** Las herramientas derivadas (disable duro) no distinguen stun de hex ni traen duración: "media". */
+    private static final String CONFIANZA_HERRAMIENTA_DERIVADA = "media";
 
     private final DatosMetaService metaService;
     private final RepositorioDependencias repositorio;
     private final HabilidadProperties props;
+    private final JuegoProperties juego;
 
     private volatile Construida construida;
 
-    public TablaContrarrestos(DatosMetaService metaService, RepositorioDependencias repositorio, HabilidadProperties props) {
+    @Autowired
+    public TablaContrarrestos(DatosMetaService metaService, RepositorioDependencias repositorio, HabilidadProperties props,
+                              JuegoProperties juego) {
         this.metaService = metaService;
         this.repositorio = repositorio;
         this.props = props;
+        this.juego = juego;
     }
 
-    private record Construida(DatosMeta datos, Tabla tabla) {
+    /** Con la configuración por defecto de lo derivado (sin pasivas). */
+    public TablaContrarrestos(DatosMetaService metaService, RepositorioDependencias repositorio, HabilidadProperties props) {
+        this(metaService, repositorio, props, new JuegoProperties(false));
+    }
+
+    /** {@code version}: versión de los indicadores del juego con la que se construyó (ver {@code DatosMetaService}). */
+    private record Construida(DatosMeta datos, long version, Tabla tabla) {
     }
 
     private record Tabla(boolean disponible, Map<Integer, Map<Integer, List<Contrarresto>>> porEnemigo,
-                         List<String> problemas) {
+                         Set<Integer> cubiertos, boolean hayIndicadores, List<String> problemas) {
     }
 
     /** true si la tabla se pudo construir con las habilidades de OpenDota para este snapshot. */
     public boolean disponible(DatosMeta datos) {
         return tabla(datos).disponible();
+    }
+
+    /**
+     * true si la tabla decide por este enemigo: tiene dependencias curadas O hay indicadores de los archivos del
+     * juego para él (aunque de ellos no salga ninguna dependencia). Solo cuando es false (enemigo sin curar y sin
+     * indicadores) la fila vuelve a las interacciones por palabra clave.
+     */
+    public boolean cubre(int enemigoId, DatosMeta datos) {
+        return tabla(datos).cubiertos().contains(enemigoId);
+    }
+
+    /** true si el snapshot trae indicadores de los archivos del juego (de al menos un héroe). */
+    public boolean hayIndicadoresDeJuego(DatosMeta datos) {
+        return tabla(datos).hayIndicadores();
     }
 
     /** Contrarrestos del candidato contra las dependencias del enemigo (una por mecanismo); vacía si no hay. */
@@ -87,17 +121,23 @@ public class TablaContrarrestos {
         return tabla(datos).problemas();
     }
 
+    /**
+     * Se memoiza por snapshot Y por versión de los indicadores del juego: si la tabla se construyó antes de que el
+     * calentamiento trajera los archivos (o con GitHub caído), se reconstruye UNA vez cuando llegan en vez de quedarse
+     * para siempre sin ellos. Consultar la versión es barato (sin red ni copias).
+     */
     private Tabla tabla(DatosMeta datos) {
+        long version = metaService.versionIndicadoresJuego();
         Construida actual = construida;
-        if (actual != null && actual.datos() == datos) {
+        if (actual != null && actual.datos() == datos && actual.version() == version) {
             return actual.tabla();
         }
-        return construir(datos);
+        return construir(datos, version);
     }
 
-    private synchronized Tabla construir(DatosMeta datos) {
+    private synchronized Tabla construir(DatosMeta datos, long version) {
         Construida actual = construida;
-        if (actual != null && actual.datos() == datos) {
+        if (actual != null && actual.datos() == datos && actual.version() == version) {
             return actual.tabla();
         }
         // Un nombre de héroe inválido es un error del archivo: se propaga (no se confunde con "sin red").
@@ -109,8 +149,10 @@ public class TablaContrarrestos {
             log.warn("No se pudieron obtener las habilidades de OpenDota; sin tabla de contrarrestos "
                     + "(la fila de jugabilidad usa solo las reglas escritas a mano): {}", e.getMessage());
         }
-        Tabla nueva = habilidades == null ? new Tabla(false, Map.of(), resueltas.problemas()) : new Constructor(datos, resueltas, habilidades).construir();
-        construida = new Construida(datos, nueva);
+        Tabla nueva = habilidades == null
+                ? new Tabla(false, Map.of(), Set.of(), false, resueltas.problemas())
+                : new Constructor(datos, resueltas, habilidades).construir();
+        construida = new Construida(datos, version, nueva);
         return nueva;
     }
 
@@ -129,6 +171,7 @@ public class TablaContrarrestos {
         }
 
         Tabla construir() {
+            Set<String> movimientoNoEscape = validarMovimientoNoEscape();
             Map<Integer, List<Herramienta>> herramientas = resueltas.herramientasPorHeroe();
             Map<Integer, List<HerramientaValida>> validas = new HashMap<>();
             herramientas.forEach((heroeId, lista) -> {
@@ -138,35 +181,175 @@ public class TablaContrarrestos {
                 }
                 validas.put(heroeId, ok);
             });
+            // Herramientas DERIVADAS de los archivos del juego (disable duro): la curada de la misma habilidad gana.
+            for (HeroeMeta candidato : datos.heroes().values()) {
+                List<HerramientaValida> derivadas = herramientasDerivadas(candidato,
+                        herramientas.getOrDefault(candidato.id(), List.of()));
+                if (!derivadas.isEmpty()) {
+                    validas.computeIfAbsent(candidato.id(), k -> new ArrayList<>()).addAll(derivadas);
+                }
+            }
 
             Map<Integer, Map<Integer, List<Contrarresto>>> porEnemigo = new HashMap<>();
+            Set<Integer> cubiertos = new HashSet<>();
             resueltas.dependenciasPorHeroe().forEach((enemigoId, dependencias) -> {
-                HeroeMeta enemigo = datos.heroes().get(enemigoId);
-                Map<Integer, List<Contrarresto>> porCandidato = new HashMap<>();
-                for (Dependencia dep : dependencias) {
-                    Optional<String> sujetoDep = sujeto(enemigo, dep);
-                    if (sujetoDep.isEmpty()) {
-                        continue; // clave de habilidad inválida: ya reportada, la dependencia se descarta
-                    }
-                    String sujeto = sujetoDep.get();
-                    validas.forEach((candidatoId, lista) -> {
-                        if (candidatoId == enemigoId.intValue()) {
-                            return;
-                        }
-                        mejorHerramienta(enemigo, datos.heroes().get(candidatoId), dep, sujeto, lista)
-                                .ifPresent(c -> porCandidato.computeIfAbsent(candidatoId, k -> new ArrayList<>()).add(c));
-                    });
-                    if (dep.mecanismo() == Mecanismo.ACOSO_RANGO) {
-                        agregarRangoMayor(enemigo, sujeto, porCandidato);
-                    }
+                if (dependencias.isEmpty()) {
+                    return;
                 }
-                porEnemigo.put(enemigoId, congelar(porCandidato));
+                // Con dependencias curadas NUNCA se usan las derivadas: el curado gana entero.
+                cubiertos.add(enemigoId);
+                porEnemigo.put(enemigoId, contrarrestosDe(datos.heroes().get(enemigoId), dependencias, false, validas));
             });
+            for (HeroeMeta enemigo : datos.heroes().values()) {
+                if (cubiertos.contains(enemigo.id()) || indicadoresDe(enemigo).isEmpty()) {
+                    continue;
+                }
+                // Solo se cubre al enemigo si de sus indicadores sale al menos UNA dependencia derivada: sin ninguna (un
+                // héroe invisible o de ilusiones, sin escape) la tabla no tiene nada que decir y debe seguir
+                // valiendo la detección por palabra clave de 5.1.
+                List<Dependencia> derivadas = dependenciasDerivadas(enemigo, movimientoNoEscape);
+                if (!derivadas.isEmpty()) {
+                    cubiertos.add(enemigo.id());
+                    porEnemigo.put(enemigo.id(), contrarrestosDe(enemigo, derivadas, true, validas));
+                }
+            }
             if (!problemas.isEmpty()) {
                 log.warn("El archivo de dependencias de héroes no cuadra con las habilidades de OpenDota "
                         + "(se descartaron esas entradas): {}", problemas);
             }
-            return new Tabla(true, Map.copyOf(porEnemigo), List.copyOf(problemas));
+            return new Tabla(true, Map.copyOf(porEnemigo), Set.copyOf(cubiertos), !dh.indicadoresPorHeroe().isEmpty(),
+                    List.copyOf(problemas));
+        }
+
+        /**
+         * Contrarrestos de todos los candidatos contra las dependencias de un enemigo. Si las dependencias son
+         * {@code derivadas} (confianza baja) la confianza de cada camino es la MENOR entre la de la dependencia y la
+         * de la herramienta, y por (candidato, mecanismo) solo cuenta la mejor (un héroe puede tener varios escapes).
+         */
+        private Map<Integer, List<Contrarresto>> contrarrestosDe(HeroeMeta enemigo, List<Dependencia> dependencias,
+                                                                  boolean derivadas,
+                                                                  Map<Integer, List<HerramientaValida>> validas) {
+            Map<Integer, List<Contrarresto>> porCandidato = new HashMap<>();
+            for (Dependencia dep : dependencias) {
+                Optional<String> sujetoDep = sujeto(enemigo, dep);
+                if (sujetoDep.isEmpty()) {
+                    continue; // clave de habilidad inválida: ya reportada, la dependencia se descarta
+                }
+                String sujeto = sujetoDep.get();
+                String confianzaDependencia = derivadas ? CONFIANZA_DEPENDENCIA_DERIVADA : null;
+                validas.forEach((candidatoId, lista) -> {
+                    if (candidatoId == enemigo.id()) {
+                        return;
+                    }
+                    mejorHerramienta(enemigo, datos.heroes().get(candidatoId), dep, sujeto, lista, confianzaDependencia)
+                            .ifPresent(c -> {
+                                List<Contrarresto> actuales = porCandidato.computeIfAbsent(candidatoId, k -> new ArrayList<>());
+                                if (derivadas) {
+                                    agregarMejorPorMecanismo(actuales, c);
+                                } else {
+                                    actuales.add(c);
+                                }
+                            });
+                });
+                if (dep.mecanismo() == Mecanismo.ACOSO_RANGO) {
+                    agregarRangoMayor(enemigo, sujeto, porCandidato);
+                }
+            }
+            return congelar(porCandidato);
+        }
+
+        private void agregarMejorPorMecanismo(List<Contrarresto> actuales, Contrarresto nuevo) {
+            for (int i = 0; i < actuales.size(); i++) {
+                if (actuales.get(i).mecanismo() == nuevo.mecanismo()) {
+                    if (nuevo.peso() > actuales.get(i).peso()) {
+                        actuales.set(i, nuevo);
+                    }
+                    return;
+                }
+            }
+            actuales.add(nuevo);
+        }
+
+        // --- Fuente derivada: indicadores de los archivos del juego ---
+
+        private Map<String, IndicadoresHabilidad> indicadoresDe(HeroeMeta heroe) {
+            if (heroe.nombreInterno() == null) {
+                return Map.of();
+            }
+            return dh.indicadoresPorHeroe().getOrDefault(heroe.nombreInterno(), Map.of());
+        }
+
+        /** Habilidades del héroe según hero_abilities, en orden y sin repetir (vacío si no se puede saber). */
+        private Set<String> habilidadesDelHeroe(HeroeMeta heroe) {
+            if (heroe.nombreInterno() == null
+                    || !(dh.habilidadesPorHeroe().get(heroe.nombreInterno()) instanceof Map<?, ?> mapa)
+                    || !(mapa.get("abilities") instanceof List<?> claves)) {
+                return Set.of();
+            }
+            Set<String> resultado = new LinkedHashSet<>();
+            claves.forEach(c -> resultado.add(String.valueOf(c)));
+            return resultado;
+        }
+
+        /** Claves de {@code movimientoNoEscape}; las desconocidas para el snapshot van a problemas (no rompen nada). */
+        private Set<String> validarMovimientoNoEscape() {
+            Set<String> validas = new HashSet<>();
+            for (String clave : repositorio.movimientoNoEscape()) {
+                if (habilidad(clave) == null) {
+                    problemas.add("movimientoNoEscape: la habilidad '" + clave + "' es desconocida en el snapshot de OpenDota");
+                } else {
+                    validas.add(clave);
+                }
+            }
+            return validas;
+        }
+
+        /**
+         * ESCAPE: habilidades propias del héroe (según hero_abilities) que no se pueden usar enraizado y no están
+         * ocultas, salvo las de {@code movimientoNoEscape}. PASIVAS: pasivas propias rompibles y no ocultas.
+         */
+        private List<Dependencia> dependenciasDerivadas(HeroeMeta enemigo, Set<String> movimientoNoEscape) {
+            Map<String, IndicadoresHabilidad> indicadores = indicadoresDe(enemigo);
+            List<Dependencia> derivadas = new ArrayList<>();
+            for (String clave : habilidadesDelHeroe(enemigo)) {
+                IndicadoresHabilidad ind = indicadores.get(clave);
+                if (ind == null || ind.oculta() || habilidad(clave) == null) {
+                    continue;
+                }
+                if (ind.desactivadaPorRoot() && !movimientoNoEscape.contains(clave)) {
+                    derivadas.add(new Dependencia(Mecanismo.ESCAPE, clave,
+                            "Derivada de los archivos del juego: la habilidad no se puede usar enraizado."));
+                }
+                if (juego.derivarPasivas() && ind.rompible() && ind.pasiva()) {
+                    derivadas.add(new Dependencia(Mecanismo.PASIVAS, clave,
+                            "Derivada de los archivos del juego: pasiva que el break anula."));
+                }
+            }
+            return derivadas;
+        }
+
+        /**
+         * STUN derivado (confianza media, sin clave de duración) para cada habilidad propia del candidato con
+         * disable duro, no oculta y que no figure ya entre sus herramientas curadas (misma clave: gana la curada).
+         */
+        private List<HerramientaValida> herramientasDerivadas(HeroeMeta candidato, List<Herramienta> curadas) {
+            Map<String, IndicadoresHabilidad> indicadores = indicadoresDe(candidato);
+            if (indicadores.isEmpty()) {
+                return List.of();
+            }
+            Set<String> clavesCuradas = new HashSet<>();
+            curadas.forEach(h -> clavesCuradas.add(h.habilidad()));
+            List<HerramientaValida> derivadas = new ArrayList<>();
+            for (String clave : habilidadesDelHeroe(candidato)) {
+                IndicadoresHabilidad ind = indicadores.get(clave);
+                if (ind == null || !ind.disableDuro() || !ind.objetivoEnemigo() || ind.oculta() || clavesCuradas.contains(clave)
+                        || habilidad(clave) == null) {
+                    continue;
+                }
+                validar(candidato, new Herramienta(clave, Efecto.STUN, null, null, null, ind.ultimate(),
+                        CONFIANZA_HERRAMIENTA_DERIVADA)).ifPresent(derivadas::add);
+            }
+            return derivadas;
         }
 
         private Map<Integer, List<Contrarresto>> congelar(Map<Integer, List<Contrarresto>> origen) {
@@ -252,8 +435,14 @@ public class TablaContrarrestos {
                     + "': " + (valor == null ? "no existe en sus atributos" : "vale " + valor + " en su primer nivel");
         }
 
+        /**
+         * La mejor herramienta del candidato contra la dependencia. Confianza del camino: la de la herramienta; si
+         * la dependencia es derivada ({@code confianzaDependencia} no nula) es la MENOR de las dos, y es la que
+         * pesa (peso = peso(confianza) x multiplicador efecto/mecanismo x fiabilidad).
+         */
         private Optional<Contrarresto> mejorHerramienta(HeroeMeta enemigo, HeroeMeta candidato, Dependencia dep,
-                                                         String sujeto, List<HerramientaValida> herramientas) {
+                                                         String sujeto, List<HerramientaValida> herramientas,
+                                                         String confianzaDependencia) {
             Contrarresto mejor = null;
             for (HerramientaValida t : herramientas) {
                 double multiplicador = TablaPesosEfectoMecanismo.multiplicador(dep.mecanismo(), t.def().efecto());
@@ -262,10 +451,13 @@ public class TablaContrarrestos {
                 }
                 double fiabilidad = FiabilidadHerramienta.calcular(t.duracion(), t.puntoLanzamiento(), t.retraso(),
                         t.atraviesaBkb(), t.def().esUlti());
-                double peso = props.peso(t.def().confianza()) * multiplicador * fiabilidad;
+                String confianza = confianzaDependencia == null
+                        ? t.def().confianza() : menorConfianza(confianzaDependencia, t.def().confianza());
+                double peso = props.peso(confianza) * multiplicador * fiabilidad;
                 if (mejor == null || peso > mejor.peso()) {
                     mejor = new Contrarresto(enemigo.id(), candidato.id(), dep.mecanismo(), t.def().efecto(),
-                            t.def().habilidad(), sujeto + frase(t, candidato) + (t.def().esUlti() ? " (desde nivel 6)" : "") + ".", t.def().confianza(), t.def().esUlti(), peso);
+                            t.def().habilidad(), sujeto + frase(t, candidato) + (t.def().esUlti() ? " (desde nivel 6)" : "") + ".",
+                            confianza, t.def().esUlti(), peso);
                 }
             }
             return Optional.ofNullable(mejor);
@@ -319,12 +511,26 @@ public class TablaContrarrestos {
 
     // --- Texto ---
 
+    /** La menor de dos confianzas ("alta" &gt; "media" &gt; "baja"); una desconocida cuenta como "baja". */
+    static String menorConfianza(String a, String b) {
+        return rango(a) <= rango(b) ? a : b;
+    }
+
+    private static int rango(String confianza) {
+        return switch (confianza) {
+            case "alta" -> 3;
+            case "media" -> 2;
+            default -> 1;
+        };
+    }
+
     private static String frase(HerramientaValida t, HeroeMeta candidato) {
         String duracion = t.duracion() == null ? null : formatear(t.duracion()) + " s en su primer nivel";
         String efecto = switch (t.def().efecto()) {
             case HEX -> "lo desactiva " + duracion;
             case SILENCIO -> "lo silencia " + duracion;
-            case STUN -> "lo aturde " + duracion;
+            // Un STUN derivado de los archivos del juego no trae duración curada: no se inventa ninguna cifra.
+            case STUN -> duracion == null ? "lo desactiva (disable duro)" : "lo aturde " + duracion;
             case ROOT -> "lo inmoviliza " + duracion;
             case DESARME -> "lo desarma " + duracion;
             case BREAK -> duracion == null ? "le anula las pasivas" : "le anula las pasivas " + duracion;

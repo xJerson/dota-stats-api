@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -29,9 +30,15 @@ import java.util.stream.Collectors;
  *       enemigos que tienen dependencias curadas ("contrarrestar la dependencia, no al héroe"), el candidato
  *       suma por las herramientas que atacan esas dependencias. La tabla se precalcula una vez por snapshot:
  *       aquí solo se consulta. Para estos enemigos NO se usan las interacciones automáticas por palabra clave.</li>
+ *   <li>Dependencias y herramientas DERIVADAS de los archivos del juego (AGENTS.md 5.3): la misma tabla las
+ *       trae para los enemigos SIN dependencias curadas pero CON indicadores del juego (escape = habilidad que no
+ *       se usa enraizado; pasivas = rompibles), y para cualquier candidato con un disable duro. Confianza baja
+ *       (la menor entre dependencia y herramienta). Un enemigo con indicadores usa la tabla aunque no derive
+ *       ninguna dependencia: NO cae al detector por palabra clave.</li>
  *   <li>Interacciones AUTOMÁTICAS ({@link CatalogoHabilidades}, {@link TablaInteraccionesAutomaticas}):
- *       derivadas por palabra clave de {@code /constants/abilities}, solo para los enemigos SIN dependencias
- *       curadas y los candidatos que no tienen una regla escrita a mano que ya los cubra. SIEMPRE confianza
+ *       derivadas por palabra clave de {@code /constants/abilities}, solo como RESPALDO para los enemigos sin
+ *       dependencias curadas ni indicadores del juego (p. ej. si los archivos del juego no estaban disponibles)
+ *       y los candidatos que no tienen una regla escrita a mano que ya los cubra. SIEMPRE confianza
  *       "media" (se presentan como "Posible: ...") y con un peso base por debajo de una regla a mano de esa
  *       misma confianza (ver {@link HabilidadProperties#pesoBaseAutomatico()}): son una heurística, pueden fallar.</li>
  * </ul>
@@ -60,6 +67,9 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
     private static final String ADVERTENCIA_SIN_DEPENDENCIAS = "No se pudieron obtener las habilidades desde "
             + "OpenDota para las dependencias curadas de los héroes enemigos; la fila de jugabilidad usa solo las "
             + "reglas escritas a mano para ellos.";
+    private static final String ADVERTENCIA_SIN_ARCHIVOS_JUEGO = "No se pudieron obtener los archivos del juego "
+            + "para las dependencias derivadas; los enemigos sin dependencias curadas usan las interacciones "
+            + "automáticas por palabra clave de OpenDota.";
 
     private final RepositorioReglas repositorio;
     private final HabilidadProperties props;
@@ -106,19 +116,29 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
         Set<Integer> curados = ctx.rivalesDirectos().stream()
                 .filter(id -> dependencias.tieneDependencias(id, ctx.datos()))
                 .collect(Collectors.toSet());
-        // Lo automático (y su advertencia) solo importa si algún rival directo NO es curado.
-        boolean hayNoCurados = ctx.rivalesDirectos().stream().anyMatch(id -> !curados.contains(id));
-        boolean automaticoDisponible = hayNoCurados && catalogo.disponible(ctx.datos());
-        if (hayNoCurados && !automaticoDisponible) {
-            ctx.advertencias().add(ADVERTENCIA_SIN_AUTOMATICO);
-        }
-        boolean tablaDisponible = !curados.isEmpty() && tabla.disponible(ctx.datos());
+        boolean tablaDisponible = tabla.disponible(ctx.datos());
         if (!curados.isEmpty() && !tablaDisponible) {
             ctx.advertencias().add(ADVERTENCIA_SIN_DEPENDENCIAS);
         }
+        // También usan la tabla (y nunca lo automático) los rivales con indicadores de los archivos del juego, aunque
+        // de ellos no salga ninguna dependencia derivada: la tabla decide por ellos.
+        Set<Integer> enTabla = new HashSet<>(curados);
+        if (tablaDisponible) {
+            ctx.rivalesDirectos().stream().filter(id -> tabla.cubre(id, ctx.datos())).forEach(enTabla::add);
+        }
+        // Lo automático (y su advertencia) solo importa si algún rival directo NO está en la tabla.
+        boolean hayFueraDeTabla = ctx.rivalesDirectos().stream().anyMatch(id -> !enTabla.contains(id));
+        boolean automaticoDisponible = hayFueraDeTabla && catalogo.disponible(ctx.datos());
+        if (hayFueraDeTabla && !automaticoDisponible) {
+            ctx.advertencias().add(ADVERTENCIA_SIN_AUTOMATICO);
+        }
+        // Solo si el respaldo por palabra clave se está usando de verdad (si tampoco está, ya hay otro aviso).
+        if (automaticoDisponible && tablaDisponible && !tabla.hayIndicadoresDeJuego(ctx.datos())) {
+            ctx.advertencias().add(ADVERTENCIA_SIN_ARCHIVOS_JUEGO);
+        }
         List<Sugerencia> sinOrdenar = new ArrayList<>();
         for (HeroeMeta candidato : ctx.candidatos()) {
-            List<Coincidencia> coincidencias = coincidenciasPara(candidato, ctx, automaticoDisponible, curados,
+            List<Coincidencia> coincidencias = coincidenciasPara(candidato, ctx, automaticoDisponible, enTabla,
                     tablaDisponible);
             double puntos = coincidencias.stream().mapToDouble(Coincidencia::peso).sum();
             if (puntos <= 0) {
@@ -135,7 +155,7 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
     }
 
     private List<Coincidencia> coincidenciasPara(HeroeMeta candidato, ContextoDraft ctx, boolean automaticoDisponible,
-                                                 Set<Integer> curados, boolean tablaDisponible) {
+                                                 Set<Integer> enTabla, boolean tablaDisponible) {
         List<Coincidencia> coincidencias = new ArrayList<>();
         for (int rivalId : ctx.rivalesDirectos()) {
             List<Coincidencia> manos = new ArrayList<>();
@@ -151,16 +171,14 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
                         rr.regla().habilidad()));
             }
             List<Coincidencia> curadas = new ArrayList<>();
-            if (curados.contains(rivalId)) {
-                if (tablaDisponible) {
-                    for (Contrarresto c : tabla.contrarrestos(rivalId, candidato.id(), ctx.datos())) {
-                        // El motivo curado ya trae "(desde nivel 6)" dentro de la oración: no se repite al final.
-                        curadas.add(new Coincidencia(c.motivo(), c.confianza(), false, c.peso(), c.habilidad()));
-                    }
+            if (enTabla.contains(rivalId) && tablaDisponible) {
+                for (Contrarresto c : tabla.contrarrestos(rivalId, candidato.id(), ctx.datos())) {
+                    // El motivo de la tabla ya trae "(desde nivel 6)" dentro de la oración: no se repite al final.
+                    curadas.add(new Coincidencia(c.motivo(), c.confianza(), false, c.peso(), c.habilidad()));
                 }
             }
             coincidencias.addAll(unirManoYCurada(manos, curadas));
-            if (!curados.contains(rivalId) && automaticoDisponible) {
+            if (!enTabla.contains(rivalId) && automaticoDisponible) {
                 coincidencias.addAll(coincidenciasAutomaticas(candidato.id(), rivalId, ctx.datos()));
             }
         }

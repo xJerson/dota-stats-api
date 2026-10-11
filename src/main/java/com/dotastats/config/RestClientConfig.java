@@ -19,6 +19,8 @@ public class RestClientConfig {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
     // /heroStats pesa varios MB, por eso el margen de lectura es amplio.
     private static final Duration READ_TIMEOUT    = Duration.ofSeconds(15);
+    static final String URL_BASE_JUEGO_POR_DEFECTO =
+            "https://raw.githubusercontent.com/dotabuff/d2vpkr/master/dota/scripts/npc/heroes";
 
     @Bean
     public RestClient openDotaRestClient(
@@ -39,5 +41,21 @@ public class RestClientConfig {
         }
 
         return builder.build();
+    }
+
+    /**
+     * Cliente de los archivos del juego (espejo de Valve en GitHub, ver {@code ArchivosJuegoClientImpl}). No es
+     * OpenDota: sin API key y con su propia URL base. Mismos tiempos de espera.
+     */
+    @Bean
+    public RestClient juegoRestClient(
+            @Value("${dotastats.juego.url-base:" + URL_BASE_JUEGO_POR_DEFECTO + "}") String baseUrl) {
+        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.DEFAULTS
+                .withConnectTimeout(CONNECT_TIMEOUT)
+                .withReadTimeout(READ_TIMEOUT);
+        return RestClient.builder()
+                .baseUrl(baseUrl)
+                .requestFactory(ClientHttpRequestFactories.get(settings))
+                .build();
     }
 }

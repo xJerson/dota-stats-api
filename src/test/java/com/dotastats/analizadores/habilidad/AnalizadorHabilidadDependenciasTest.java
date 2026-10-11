@@ -21,6 +21,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -132,11 +133,14 @@ class AnalizadorHabilidadDependenciasTest {
     }
 
     @Test
-    void unEnemigoSinDependenciasCuradasNoTocaLaTabla() {
-        // Lion no tiene dependencias curadas; el catálogo por palabra clave (aquí vacío) sería lo único que aplica.
+    void unEnemigoSinDependenciasCuradasNiIndicadoresDelJuegoSoloAveriguaSiLaTablaLoCubreYSigueElCaminoAutomatico() {
+        // Lion no tiene dependencias curadas y la muestra no trae indicadores del juego: la tabla (que se construye
+        // una vez) no lo cubre y el catálogo por palabra clave (aquí vacío) sería lo único que aplica.
         ContextoDraft ctx = contexto(3, 1, MuestraOpenDota.LION, MuestraOpenDota.DROW, MuestraOpenDota.ZEUS);
 
         assertThat(analizador.sugerir(ctx)).isEmpty();
+        verify(metaService, times(1)).datosHabilidad();
+        verify(metaService, atLeastOnce()).versionIndicadoresJuego(); // consulta barata de la versión
         verifyNoMoreInteractions(metaService);
     }
 
@@ -149,6 +153,7 @@ class AnalizadorHabilidadDependenciasTest {
         }
 
         verify(metaService, times(1)).datosHabilidad();
+        verify(metaService, atLeastOnce()).versionIndicadoresJuego(); // consulta barata de la versión
         verifyNoMoreInteractions(metaService);
     }
 }

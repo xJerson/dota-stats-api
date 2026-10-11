@@ -249,4 +249,33 @@ class RepositorioDependenciasTest {
                 .containsExactlyInAnyOrder("Storm Spirit", "Riki", "Phantom Lancer", "Huskar", "Viper");
         assertThat(repo.todasLasHerramientas().size()).isBetween(15, 40);
     }
+
+    @Test
+    void elArchivoQueTraeElJarTraeLosSeisMovimientosNoEscapeIniciales() {
+        HabilidadProperties props = new HabilidadProperties(1.0, 0.5, 0.25, "classpath:reglas-habilidades.json", null, null);
+        RepositorioDependencias repo = new RepositorioDependencias(new DefaultResourceLoader(), props);
+
+        repo.cargar();
+
+        assertThat(repo.movimientoNoEscape()).containsExactlyInAnyOrder(
+                "spirit_breaker_charge_of_darkness", "spirit_breaker_nether_strike", "techies_suicide",
+                "phoenix_sun_ray_toggle_move", "lone_druid_spirit_bear_return", "necrolyte_death_seeker");
+    }
+
+    @Test
+    void movimientoNoEscapeEsOpcionalYSeLee() throws IOException {
+        assertThat(repo(VALIDO).movimientoNoEscape()).isEmpty();
+
+        RepositorioDependencias repo = repo("{\"dependencias\":[],\"herramientas\":[],"
+                + "\"movimientoNoEscape\":[\"techies_suicide\",\"puck_ethereal_jaunt\"]}");
+
+        assertThat(repo.movimientoNoEscape()).containsExactly("techies_suicide", "puck_ethereal_jaunt");
+    }
+
+    @Test
+    void unaClaveEnBlancoEnMovimientoNoEscapeFallaAlArrancar() {
+        assertThatThrownBy(() -> repo("{\"dependencias\":[],\"herramientas\":[],\"movimientoNoEscape\":[\"  \"]}"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("movimientoNoEscape");
+    }
 }

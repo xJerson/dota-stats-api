@@ -4,6 +4,8 @@ import com.dotastats.client.OpenDotaClient;
 import com.dotastats.client.Parche;
 import com.dotastats.exception.DatosNoCargadosException;
 import com.dotastats.exception.OpenDotaNoDisponibleException;
+import com.dotastats.juego.ArchivosJuegoClient;
+import com.dotastats.juego.IndicadoresHabilidad;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -912,5 +914,234 @@ class DatosMetaServiceTest {
         s.datosHabilidad();
 
         verify(client, times(2)).obtenerHeroesConstantes();
+    }
+
+    // --- Archivos del juego (indicadores de habilidad que OpenDota no trae) ---
+
+    private static final IndicadoresHabilidad BLINK = new IndicadoresHabilidad(true, false, false, false, false, false, false);
+    private static final IndicadoresHabilidad OTRO = new IndicadoresHabilidad(false, true, false, false, false, false, false);
+    private static final List<String> TODOS = List.of("npc_dota_hero_alfa", "npc_dota_hero_beta", "npc_dota_hero_gamma");
+
+    private static Map<String, Map<String, IndicadoresHabilidad>> indicadores(String... heroes) {
+        Map<String, Map<String, IndicadoresHabilidad>> r = new HashMap<>();
+        for (String h : heroes) {
+            r.put(h, Map.of(h + "_habilidad", BLINK));
+        }
+        return r;
+    }
+
+    private static Map<String, Map<String, IndicadoresHabilidad>> indicadoresDeTodos() {
+        return indicadores(TODOS.toArray(new String[0]));
+    }
+
+    /** Servicio con los dos ejecutores en línea: la carga base y el calentamiento corren al llamar a refrescar(). */
+    private DatosMetaService servicioConJuego(OpenDotaClient cliente, ArchivosJuegoClient juego, boolean alIniciar) {
+        return new DatosMetaService(cliente, props(List.of(6, 7), 0, 0, alIniciar), new CacheDisco(archivoCache),
+                Runnable::run, RELOJ, juego);
+    }
+
+    /** Servicio cuyo calentamiento NO corre solo (ejecutor que descarta): el test lo dispara a mano. */
+    private DatosMetaService servicioSinCalentar(ArchivosJuegoClient juego) {
+        return new DatosMetaService(client, props(List.of(6, 7), 0, 0, false), new CacheDisco(archivoCache),
+                Runnable::run, RELOJ, juego, r -> { });
+    }
+
+    @Test
+    void datosHabilidadNuncaPideLosArchivosDelJuego() {
+        habilidadesDisponibles();
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        DatosMetaService s = servicioSinCalentar(juego);
+        s.refrescar();
+
+        for (int i = 0; i < 3; i++) {
+            assertThat(s.datosHabilidad().indicadoresPorHeroe()).isEmpty();
+        }
+
+        verify(juego, never()).obtenerIndicadores(any());
+    }
+
+    @Test
+    void alConstruirElSnapshotCalientaLosIndicadoresDeTodosLosHeroesYLosEntregaDatosHabilidad() {
+        habilidadesDisponibles();
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        when(juego.obtenerIndicadores(any())).thenReturn(indicadoresDeTodos());
+        DatosMetaService s = servicioConJuego(client, juego, false);
+        long antes = s.versionIndicadoresJuego();
+
+        s.refrescar();
+
+        DatosHabilidad dh = s.datosHabilidad();
+        assertThat(dh.indicadoresPorHeroe()).containsOnlyKeys(TODOS.toArray(new String[0]));
+        assertThat(s.versionIndicadoresJuego()).isGreaterThan(antes);
+        verify(juego, times(1)).obtenerIndicadores(org.mockito.ArgumentMatchers.argThat(n -> List.copyOf(n).equals(TODOS)));
+    }
+
+    @Test
+    void unResultadoVacioNoSeGuardaNiSeDaPorFinalYElSiguienteCalentamientoLoReintenta() {
+        habilidadesDisponibles();
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        when(juego.obtenerIndicadores(any())).thenReturn(Map.of());
+        DatosMetaService s = servicioConJuego(client, juego, false);
+        s.refrescar();
+        long versionSinDatos = s.versionIndicadoresJuego();
+
+        assertThat(s.datosHabilidad().indicadoresPorHeroe()).isEmpty();
+        assertThat(new CacheDisco(archivoCache).cargar().orElseThrow().indicadoresPorHeroe()).isEmpty();
+
+        when(juego.obtenerIndicadores(any())).thenReturn(indicadoresDeTodos());
+        s.calentarIndicadores();
+
+        assertThat(s.datosHabilidad().indicadoresPorHeroe()).hasSize(3);
+        assertThat(s.versionIndicadoresJuego()).isGreaterThan(versionSinDatos);
+    }
+
+    @Test
+    void unaExcepcionDelClienteDelJuegoNoTumbaNadaYSeReintentaDespues() {
+        habilidadesDisponibles();
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        when(juego.obtenerIndicadores(any())).thenThrow(new IllegalStateException("explotó"));
+        DatosMetaService s = servicioConJuego(client, juego, false);
+
+        s.refrescar();
+
+        assertThat(s.datosHabilidad().abilidades()).containsKey("lion_voodoo");
+        assertThat(s.datosHabilidad().indicadoresPorHeroe()).isEmpty();
+        doReturn(indicadoresDeTodos()).when(juego).obtenerIndicadores(any());
+        s.calentarIndicadores();
+        assertThat(s.datosHabilidad().indicadoresPorHeroe()).hasSize(3);
+    }
+
+    @Test
+    void unResultadoParcialSeUsaPeroNoSeDaPorCompletoYElSiguienteCalentamientoPideSoloLosQueFaltan() {
+        habilidadesDisponibles();
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        when(juego.obtenerIndicadores(any())).thenReturn(indicadores("npc_dota_hero_alfa"));
+        DatosMetaService primero = servicioConJuego(client, juego, false);
+        primero.refrescar();
+        assertThat(primero.datosHabilidad().indicadoresPorHeroe()).containsOnlyKeys("npc_dota_hero_alfa");
+
+        // Al reiniciar: la caché de disco trae solo a alfa; el calentamiento pide únicamente a beta y gamma.
+        OpenDotaClient otroClient = mock(OpenDotaClient.class);
+        ArchivosJuegoClient otroJuego = mock(ArchivosJuegoClient.class);
+        when(otroJuego.obtenerIndicadores(any())).thenReturn(indicadores("npc_dota_hero_beta", "npc_dota_hero_gamma"));
+        DatosMetaService segundo = new DatosMetaService(otroClient, props(List.of(6, 7), 30, 0, true),
+                new CacheDisco(archivoCache), Runnable::run, RELOJ, otroJuego);
+        segundo.cargarAlIniciar();
+
+        verify(otroJuego, times(1)).obtenerIndicadores(org.mockito.ArgumentMatchers.argThat(
+                n -> List.copyOf(n).equals(List.of("npc_dota_hero_beta", "npc_dota_hero_gamma"))));
+        assertThat(segundo.datosHabilidad().indicadoresPorHeroe()).containsOnlyKeys(TODOS.toArray(new String[0]));
+    }
+
+    @Test
+    void conUnaCacheCompletaNoSePideNadaAlJuego() {
+        habilidadesDisponibles();
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        when(juego.obtenerIndicadores(any())).thenReturn(indicadoresDeTodos());
+        DatosMetaService primero = servicioConJuego(client, juego, false);
+        primero.refrescar();
+        primero.datosHabilidad();
+
+        OpenDotaClient otroClient = mock(OpenDotaClient.class);
+        ArchivosJuegoClient otroJuego = mock(ArchivosJuegoClient.class);
+        DatosMetaService segundo = new DatosMetaService(otroClient, props(List.of(6, 7), 30, 0, true),
+                new CacheDisco(archivoCache), Runnable::run, RELOJ, otroJuego);
+        segundo.cargarAlIniciar();
+
+        assertThat(segundo.datosHabilidad().indicadoresPorHeroe()).hasSize(3);
+        verify(otroJuego, never()).obtenerIndicadores(any());
+        verify(otroClient, never()).obtenerAbilidades();
+    }
+
+    @Test
+    void unaCacheViejaSinIndicadoresPideSoloLosIndicadoresYNoRepiteLoDeOpenDota() {
+        habilidadesDisponibles();
+        heroesConstantesDisponibles(client);
+        DatosMetaService primero = servicioConJuego(client, ArchivosJuegoClient.NINGUNO, false);
+        primero.refrescar();
+        primero.datosHabilidad(); // sin archivos del juego: queda en disco con habilidades y alcance, sin indicadores
+
+        OpenDotaClient otroClient = mock(OpenDotaClient.class);
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        when(juego.obtenerIndicadores(any())).thenReturn(indicadoresDeTodos());
+        DatosMetaService segundo = new DatosMetaService(otroClient, props(List.of(6, 7), 30, 0, true),
+                new CacheDisco(archivoCache), Runnable::run, RELOJ, juego);
+        segundo.cargarAlIniciar();
+
+        DatosHabilidad datos = segundo.datosHabilidad();
+
+        assertThat(datos.abilidades()).containsKey("lion_voodoo");
+        assertThat(datos.rangoAtaquePorHeroe()).containsEntry(47, 575);
+        assertThat(datos.indicadoresPorHeroe()).hasSize(3);
+        verify(otroClient, never()).obtenerAbilidades();
+        verify(otroClient, never()).obtenerHabilidadesPorHeroe();
+        verify(otroClient, never()).obtenerHeroesConstantes();
+        verify(juego, times(1)).obtenerIndicadores(any());
+    }
+
+    @Test
+    void conParcheNuevoLosIndicadoresSeDescartanYSeVuelvenAPedirAlReconstruirElSnapshot() {
+        habilidadesDisponibles();
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        when(juego.obtenerIndicadores(any())).thenReturn(indicadoresDeTodos());
+        DatosMetaService s = servicioConJuego(client, juego, false); // TTL 0: consulta el parche vivo siempre
+        s.refrescar();
+        when(client.obtenerParche()).thenReturn(new Parche(61, "7.42"));
+
+        s.datosParaSugerir(); // detecta el parche nuevo, recarga la base y calienta de nuevo
+
+        verify(juego, times(2)).obtenerIndicadores(any());
+    }
+
+    @Test
+    void siElSnapshotCambiaMientrasSeDescargaElResultadoViejoSeDescarta() {
+        habilidadesDisponibles();
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        DatosMetaService s = servicioSinCalentar(juego);
+        s.refrescar();
+        AtomicInteger llamadas = new AtomicInteger();
+        when(juego.obtenerIndicadores(any())).thenAnswer(inv -> {
+            if (llamadas.incrementAndGet() == 1) {
+                s.refrescar(); // mientras se descarga llega un parche nuevo: el snapshot se reemplaza
+                return indicadores("npc_dota_hero_alfa"); // resultado de la generación vieja
+            }
+            return Map.of("npc_dota_hero_beta", Map.of("beta_habilidad", OTRO)); // generación nueva
+        });
+
+        s.calentarIndicadores();
+
+        // Lo de la generación vieja (alfa) se descartó; solo queda lo de la nueva.
+        assertThat(s.datosHabilidad().indicadoresPorHeroe()).containsOnlyKeys("npc_dota_hero_beta");
+        verify(juego, times(2)).obtenerIndicadores(any());
+    }
+
+    @Test
+    void llamadasConcurrentesAlCalentamientoDescargaUnaSolaVez() throws Exception {
+        habilidadesDisponibles();
+        ArchivosJuegoClient juego = mock(ArchivosJuegoClient.class);
+        CountDownLatch dentro = new CountDownLatch(1);
+        CountDownLatch soltar = new CountDownLatch(1);
+        when(juego.obtenerIndicadores(any())).thenAnswer(inv -> {
+            dentro.countDown();
+            soltar.await(5, TimeUnit.SECONDS);
+            return indicadoresDeTodos();
+        });
+        DatosMetaService s = servicioSinCalentar(juego);
+        s.refrescar();
+        ExecutorService hilos = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> primera = hilos.submit(s::calentarIndicadores);
+            assertThat(dentro.await(5, TimeUnit.SECONDS)).isTrue();
+
+            s.calentarIndicadores(); // con la primera en vuelo, estas vuelven sin descargar
+            s.calentarIndicadores();
+            soltar.countDown();
+            primera.get(5, TimeUnit.SECONDS);
+        } finally {
+            hilos.shutdownNow();
+        }
+
+        verify(juego, times(1)).obtenerIndicadores(any());
+        assertThat(s.datosHabilidad().indicadoresPorHeroe()).hasSize(3);
     }
 }

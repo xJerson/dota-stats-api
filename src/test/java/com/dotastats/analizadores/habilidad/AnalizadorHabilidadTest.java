@@ -439,12 +439,12 @@ class AnalizadorHabilidadTest {
     }
 
     @Test
-    void siNingunRivalDirectoEsCuradoNoSeConstruyeLaTabla() {
+    void siNingunRivalDirectoEsCuradoLaTablaSoloSePreguntaSiLoCubreYNoSeConsultanSusContrarrestos() {
         reglasParaStorm();
 
         analizador.sugerir(contexto(Set.of(6), List.of(LION)));
 
-        org.mockito.Mockito.verify(tabla, org.mockito.Mockito.never()).disponible(any());
+        org.mockito.Mockito.verify(tabla, org.mockito.Mockito.never()).contrarrestos(anyInt(), anyInt(), any());
     }
 
     private ReglaHabilidad reglaDe(String id, String habilidad, String confianza, String motivo) {

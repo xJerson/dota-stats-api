@@ -43,7 +43,7 @@ public class RepositorioDependencias {
     private final HabilidadProperties props;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private volatile ArchivoDependencias archivo = new ArchivoDependencias(List.of(), List.of());
+    private volatile ArchivoDependencias archivo = new ArchivoDependencias(List.of(), List.of(), List.of());
     private volatile DatosMeta resueltoContra;
     private volatile Resueltas resueltas = new Resueltas(Map.of(), Map.of(), List.of());
 
@@ -75,6 +75,14 @@ public class RepositorioDependencias {
     /** Las herramientas tal como están en el archivo, sin resolver contra ningún catálogo. */
     public List<HerramientasHeroe> todasLasHerramientas() {
         return archivo.herramientas();
+    }
+
+    /**
+     * Claves de habilidad que los archivos del juego marcan como "no se puede usar enraizado" pero que no son un
+     * escape (ver {@link ArchivoDependencias#movimientoNoEscape()}); sin resolver contra ningún catálogo.
+     */
+    public List<String> movimientoNoEscape() {
+        return archivo.movimientoNoEscape();
     }
 
     /** true si el héroe enemigo tiene dependencias curadas (entonces no se usan las interacciones por palabra clave). */
@@ -136,6 +144,9 @@ public class RepositorioDependencias {
     }
 
     private void validarCampos(ArchivoDependencias leido) {
+        if (leido.movimientoNoEscape().stream().anyMatch(this::esBlanco)) {
+            throw new IllegalStateException("movimientoNoEscape no admite claves en blanco");
+        }
         Set<String> heroesConDependencias = new HashSet<>();
         for (DependenciasHeroe d : leido.dependencias()) {
             List<String> problemas = new ArrayList<>();

@@ -1,5 +1,7 @@
 package com.dotastats.meta;
 
+import com.dotastats.juego.IndicadoresHabilidad;
+
 import java.util.Map;
 
 /**
@@ -17,10 +19,15 @@ import java.util.Map;
  * @param rangoAtaquePorHeroe {@code attack_range} base de {@code /constants/heroes} (heroId -> alcance); vacío si
  *                            todavía no se pidió o si el archivo es de antes de que existiera (se lee igual y se
  *                            pide solo ese dato, sin invalidar el resto de la caché)
+ * @param indicadoresPorHeroe indicadores de los archivos del juego (nombre interno del héroe -> clave de habilidad
+ *                            -> indicadores); misma política que el alcance de ataque: vacío si todavía no se pidió o
+ *                            si el archivo es de antes de que existiera (se lee igual, SIN subir {@link #VERSION}, y
+ *                            se piden solo los indicadores)
  */
 public record SnapshotMeta(int version, DatosMeta datos, Map<Integer, Map<Integer, Duelo>> matchups,
                            Map<String, Object> abilidades, Map<String, Object> habilidadesPorHeroe,
-                           Map<Integer, Integer> rangoAtaquePorHeroe) {
+                           Map<Integer, Integer> rangoAtaquePorHeroe,
+                           Map<String, Map<String, IndicadoresHabilidad>> indicadoresPorHeroe) {
 
     public static final int VERSION = 4;
 
@@ -28,11 +35,19 @@ public record SnapshotMeta(int version, DatosMeta datos, Map<Integer, Map<Intege
         abilidades = abilidades == null ? Map.of() : Map.copyOf(abilidades);
         habilidadesPorHeroe = habilidadesPorHeroe == null ? Map.of() : Map.copyOf(habilidadesPorHeroe);
         rangoAtaquePorHeroe = rangoAtaquePorHeroe == null ? Map.of() : Map.copyOf(rangoAtaquePorHeroe);
+        indicadoresPorHeroe = indicadoresPorHeroe == null ? Map.of() : Map.copyOf(indicadoresPorHeroe);
     }
 
-    /** Sin alcance de ataque: pruebas existentes y cachés anteriores a esta función. */
+    /** Sin indicadores del juego: pruebas existentes y cachés anteriores a esta función. */
+    public SnapshotMeta(int version, DatosMeta datos, Map<Integer, Map<Integer, Duelo>> matchups,
+                        Map<String, Object> abilidades, Map<String, Object> habilidadesPorHeroe,
+                        Map<Integer, Integer> rangoAtaquePorHeroe) {
+        this(version, datos, matchups, abilidades, habilidadesPorHeroe, rangoAtaquePorHeroe, Map.of());
+    }
+
+    /** Sin alcance de ataque ni indicadores: pruebas existentes y cachés anteriores a estas funciones. */
     public SnapshotMeta(int version, DatosMeta datos, Map<Integer, Map<Integer, Duelo>> matchups,
                         Map<String, Object> abilidades, Map<String, Object> habilidadesPorHeroe) {
-        this(version, datos, matchups, abilidades, habilidadesPorHeroe, Map.of());
+        this(version, datos, matchups, abilidades, habilidadesPorHeroe, Map.of(), Map.of());
     }
 }
