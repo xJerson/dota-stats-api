@@ -157,7 +157,7 @@ class ServicioSugerenciasTest {
 
     @Test
     void lasFilasRealesDanPrioridadDeRepetidosAJugabilidad() {
-        assertThat(new com.dotastats.analizadores.habilidad.AnalizadorHabilidad(null, null, null, null, null).prioridadRepetidos())
+        assertThat(new com.dotastats.analizadores.habilidad.AnalizadorHabilidad(null, null, null, null, null, null).prioridadRepetidos())
                 .isLessThan(new AnalizadorMeta(null).prioridadRepetidos());
     }
 

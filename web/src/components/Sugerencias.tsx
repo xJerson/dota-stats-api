@@ -14,7 +14,7 @@ const formato = new Intl.NumberFormat("es", { minimumFractionDigits: 1, maximumF
 
 /** Texto del estado vacío de una fila sin sugerencias; cae a uno genérico para filas que no conocemos todavía. */
 const TEXTOS_VACIOS_POR_FILA: Record<string, string> = {
-  habilidad: "elige al rival de tu línea para ver sugerencias por jugabilidad",
+  habilidad: "elige al rival de tu línea para ver sugerencias por jugabilidad (con soporte, también cuenta el mid enemigo)",
 };
 const TEXTO_VACIO_GENERICO = "no hay sugerencias en esta categoría por ahora";
 

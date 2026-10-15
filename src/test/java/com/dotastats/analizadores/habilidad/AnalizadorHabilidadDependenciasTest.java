@@ -53,7 +53,7 @@ class AnalizadorHabilidadDependenciasTest {
         when(catalogo.perfilDe(anyInt(), any())).thenReturn(Optional.empty());
         RepositorioDependencias dependencias = new RepositorioDependencias(new DefaultResourceLoader(), props);
         dependencias.cargar();
-        analizador = new AnalizadorHabilidad(reglas, props, catalogo, dependencias,
+        analizador = new AnalizadorHabilidad(reglas, props, new RotacionProperties(null, 0.5), catalogo, dependencias,
                 new TablaContrarrestos(metaService, dependencias, props));
     }
 

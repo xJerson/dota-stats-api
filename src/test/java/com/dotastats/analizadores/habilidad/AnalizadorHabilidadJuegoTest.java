@@ -70,7 +70,7 @@ class AnalizadorHabilidadJuegoTest {
         HabilidadProperties props = new HabilidadProperties(1.0, 0.5, 0.25, "classpath:reglas-habilidades.json", null, null);
         RepositorioDependencias dependencias = new RepositorioDependencias(new DefaultResourceLoader(), props);
         dependencias.cargar();
-        return new AnalizadorHabilidad(reglas, props, catalogo, dependencias,
+        return new AnalizadorHabilidad(reglas, props, new RotacionProperties(null, 0.5), catalogo, dependencias,
                 new TablaContrarrestos(metaService, dependencias, props));
     }
 

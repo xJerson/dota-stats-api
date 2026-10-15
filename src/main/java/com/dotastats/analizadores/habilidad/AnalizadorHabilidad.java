@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,8 +23,9 @@ import java.util.stream.Collectors;
 
 /**
  * Fila "Sugerencias por jugabilidad": evalúa SOLO habilidades, como piezas de ajedrez (nada de objetos, farm
- * ni habilidad del jugador). Combina tres fuentes, solo contra los rivales DIRECTOS de {@code ctx.miRol()}
- * (nunca por un enemigo en otro slot) y solo sobre los candidatos de la posición:
+ * ni habilidad del jugador). Combina tres fuentes, solo contra los rivales DIRECTOS de {@code ctx.miRol()} y,
+ * para los soportes, contra el enemigo de los slots de ROTACIÓN ({@link RotacionProperties}: por defecto el mid, con
+ * un peso menor y un motivo que lo aclara); nunca por un enemigo en otro slot. Solo sobre los candidatos de la posición:
  * <ul>
  *   <li>Reglas ESCRITAS A MANO ({@link RepositorioReglas}): tienen prioridad. Un candidato suma puntos cuando
  *       es el {@code counter} de una regla cuyo enemigo es un rival directo.</li>
@@ -76,11 +79,14 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
     private final CatalogoHabilidades catalogo;
     private final RepositorioDependencias dependencias;
     private final TablaContrarrestos tabla;
+    private final RotacionProperties rotacion;
 
-    public AnalizadorHabilidad(RepositorioReglas repositorio, HabilidadProperties props, CatalogoHabilidades catalogo,
-                               RepositorioDependencias dependencias, TablaContrarrestos tabla) {
+    public AnalizadorHabilidad(RepositorioReglas repositorio, HabilidadProperties props, RotacionProperties rotacion,
+                               CatalogoHabilidades catalogo, RepositorioDependencias dependencias,
+                               TablaContrarrestos tabla) {
         this.repositorio = repositorio;
         this.props = props;
+        this.rotacion = rotacion;
         this.catalogo = catalogo;
         this.dependencias = dependencias;
         this.tabla = tabla;
@@ -109,11 +115,15 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
 
     @Override
     public List<Sugerencia> sugerir(ContextoDraft ctx) {
-        if (ctx.rivalesDirectos().isEmpty()) {
+        // Enemigos de rotación (heroId -> slot): solo aplican a quien rota y nunca duplican a un rival directo.
+        Map<Integer, Integer> deRotacion = enemigosDeRotacion(ctx);
+        Set<Integer> rivales = new LinkedHashSet<>(ctx.rivalesDirectos());
+        rivales.addAll(deRotacion.keySet());
+        if (rivales.isEmpty()) {
             return List.of();
         }
-        // Rivales directos con dependencias curadas: usan la tabla precalculada, nunca lo automático.
-        Set<Integer> curados = ctx.rivalesDirectos().stream()
+        // Rivales con dependencias curadas: usan la tabla precalculada, nunca lo automático.
+        Set<Integer> curados = rivales.stream()
                 .filter(id -> dependencias.tieneDependencias(id, ctx.datos()))
                 .collect(Collectors.toSet());
         boolean tablaDisponible = tabla.disponible(ctx.datos());
@@ -124,10 +134,10 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
         // de ellos no salga ninguna dependencia derivada: la tabla decide por ellos.
         Set<Integer> enTabla = new HashSet<>(curados);
         if (tablaDisponible) {
-            ctx.rivalesDirectos().stream().filter(id -> tabla.cubre(id, ctx.datos())).forEach(enTabla::add);
+            rivales.stream().filter(id -> tabla.cubre(id, ctx.datos())).forEach(enTabla::add);
         }
-        // Lo automático (y su advertencia) solo importa si algún rival directo NO está en la tabla.
-        boolean hayFueraDeTabla = ctx.rivalesDirectos().stream().anyMatch(id -> !enTabla.contains(id));
+        // Lo automático (y su advertencia) solo importa si algún rival NO está en la tabla.
+        boolean hayFueraDeTabla = rivales.stream().anyMatch(id -> !enTabla.contains(id));
         boolean automaticoDisponible = hayFueraDeTabla && catalogo.disponible(ctx.datos());
         if (hayFueraDeTabla && !automaticoDisponible) {
             ctx.advertencias().add(ADVERTENCIA_SIN_AUTOMATICO);
@@ -138,8 +148,8 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
         }
         List<Sugerencia> sinOrdenar = new ArrayList<>();
         for (HeroeMeta candidato : ctx.candidatos()) {
-            List<Coincidencia> coincidencias = coincidenciasPara(candidato, ctx, automaticoDisponible, enTabla,
-                    tablaDisponible);
+            List<Coincidencia> coincidencias = coincidenciasPara(candidato, ctx, rivales, deRotacion,
+                    automaticoDisponible, enTabla, tablaDisponible);
             double puntos = coincidencias.stream().mapToDouble(Coincidencia::peso).sum();
             if (puntos <= 0) {
                 continue;
@@ -154,10 +164,31 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
                 .toList();
     }
 
-    private List<Coincidencia> coincidenciasPara(HeroeMeta candidato, ContextoDraft ctx, boolean automaticoDisponible,
+    /**
+     * Enemigos (heroId -> slot) en los slots a los que rota {@code ctx.miRol()} ({@link RotacionProperties}). Vacío
+     * si el peso de rotación es 0. Un héroe que ya es rival directo se queda solo como directo (peso 1,0 una vez).
+     */
+    private Map<Integer, Integer> enemigosDeRotacion(ContextoDraft ctx) {
+        Map<Integer, Integer> resultado = new LinkedHashMap<>();
+        if (rotacion.pesoRotacion() <= 0) {
+            return resultado;
+        }
+        for (int slot : rotacion.slotsDe(ctx.miRol())) {
+            Integer heroId = ctx.enemigosPorSlot().get(slot);
+            if (heroId != null && !ctx.rivalesDirectos().contains(heroId)) {
+                resultado.putIfAbsent(heroId, slot);
+            }
+        }
+        return resultado;
+    }
+
+    private List<Coincidencia> coincidenciasPara(HeroeMeta candidato, ContextoDraft ctx, Set<Integer> rivales,
+                                                 Map<Integer, Integer> deRotacion, boolean automaticoDisponible,
                                                  Set<Integer> enTabla, boolean tablaDisponible) {
         List<Coincidencia> coincidencias = new ArrayList<>();
-        for (int rivalId : ctx.rivalesDirectos()) {
+        for (int rivalId : rivales) {
+            Integer slotRotacion = deRotacion.get(rivalId);
+            List<Coincidencia> delRival = new ArrayList<>();
             List<Coincidencia> manos = new ArrayList<>();
             for (RepositorioReglas.ReglaResuelta rr : repositorio.reglasPara(rivalId, ctx.datos())) {
                 if (rr.counterHeroId() != candidato.id()) {
@@ -177,9 +208,14 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
                     curadas.add(new Coincidencia(c.motivo(), c.confianza(), false, c.peso(), c.habilidad()));
                 }
             }
-            coincidencias.addAll(unirManoYCurada(manos, curadas));
+            delRival.addAll(unirManoYCurada(manos, curadas));
             if (!enTabla.contains(rivalId) && automaticoDisponible) {
-                coincidencias.addAll(coincidenciasAutomaticas(candidato.id(), rivalId, ctx.datos()));
+                delRival.addAll(coincidenciasAutomaticas(candidato.id(), rivalId, ctx.datos()));
+            }
+            if (slotRotacion == null) {
+                coincidencias.addAll(delRival);
+            } else {
+                delRival.forEach(c -> coincidencias.add(c.alRotar(slotRotacion, rotacion.pesoRotacion())));
             }
         }
         return coincidencias;
@@ -283,7 +319,10 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
 
     private static String frase(Coincidencia c) {
         String base = c.motivoBase();
-        if (!CONFIANZA_ALTA.equals(c.confianza())) {
+        boolean segura = CONFIANZA_ALTA.equals(c.confianza());
+        if (c.slotRotacion() != null) {
+            base = (segura ? "Al rotar " : "Posible, al rotar ") + destinoRotacion(c.slotRotacion()) + ": " + base;
+        } else if (!segura) {
             base = "Posible: " + base;
         }
         if (c.esUltiCandidato()) {
@@ -292,14 +331,30 @@ public class AnalizadorHabilidad implements AnalizadorDraft {
         return base;
     }
 
+    /** El slot 2 es el mid; cualquier otro slot configurado se nombra por su número. */
+    private static String destinoRotacion(int slot) {
+        return slot == 2 ? "a mid" : "al slot " + slot;
+    }
+
     /**
      * Una coincidencia (de una regla a mano o de una interacción automática) a favor de un candidato, ya con
      * el peso resuelto. {@code motivoBase} es el texto crudo (sin el prefijo "Posible:" ni el sufijo de
      * ultimate, que añade {@link #frase}); {@code esUltiCandidato} es si la habilidad DEL CANDIDATO (no la
      * del rival) es su ultimate; {@code habilidad} es la clave de la habilidad del candidato (null en lo automático),
      * para no contar dos veces la misma habilidad por regla a mano y por herramienta curada.
+     * {@code slotRotacion} es el slot del enemigo cuando la coincidencia viene de una rotación (el motivo lo dice);
+     * null si es un rival directo.
      */
     private record Coincidencia(String motivoBase, String confianza, boolean esUltiCandidato, double peso,
-                                String habilidad) {
+                                String habilidad, Integer slotRotacion) {
+
+        Coincidencia(String motivoBase, String confianza, boolean esUltiCandidato, double peso, String habilidad) {
+            this(motivoBase, confianza, esUltiCandidato, peso, habilidad, null);
+        }
+
+        /** La misma coincidencia contra un enemigo de rotación: peso multiplicado y motivo marcado. */
+        Coincidencia alRotar(int slot, double factor) {
+            return new Coincidencia(motivoBase, confianza, esUltiCandidato, peso * factor, habilidad, slot);
+        }
     }
 }

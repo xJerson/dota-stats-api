@@ -59,7 +59,8 @@ class AnalizadorHabilidadTest {
                 Map.of(26, LION, 27, SHADOW_SHAMAN, 6, STORM_SPIRIT, 39, QUEEN_OF_PAIN, 999, OTRO),
                 new Parche(60, "7.41"), Instant.parse("2026-10-10T12:00:00Z"));
         analizador = new AnalizadorHabilidad(repositorio, new HabilidadProperties(1.0, 0.5, 0.25,
-                "classpath:reglas-habilidades.json", null, null), catalogo, dependencias, tabla);
+                "classpath:reglas-habilidades.json", null, null), new RotacionProperties(null, 0.5), catalogo,
+                dependencias, tabla);
     }
 
     private ReglaHabilidad regla(String id, String counter, String confianza, boolean esUlti, String motivo) {

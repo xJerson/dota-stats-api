@@ -59,7 +59,7 @@ describe("Sugerencias", () => {
     ];
     montar(estadoOk(filas));
 
-    expect(screen.getByText("elige al rival de tu línea para ver sugerencias por jugabilidad")).toBeInTheDocument();
+    expect(screen.getByText("elige al rival de tu línea para ver sugerencias por jugabilidad (con soporte, también cuenta el mid enemigo)")).toBeInTheDocument();
   });
 
   it("usa un texto genérico cuando una fila desconocida no tiene sugerencias", () => {
